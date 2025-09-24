@@ -16,7 +16,7 @@ public class Main {
 
 
             String input = scanner.nextLine();
-            String[] buildInCommands = {"exit 0", "echo", "type"};
+            String[] buildInCommands = {"exit", "echo", "type"};
 
             if (input.equals("exit 0")) {
                 break; // EOF - exit the REPL
