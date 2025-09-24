@@ -1,4 +1,5 @@
 import java.util.Scanner;
+import java.util.Arrays;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -15,13 +16,22 @@ public class Main {
 
 
             String input = scanner.nextLine();
-
+            String[] buildInCommands = {"exit 0", "echo", "type"};
 
             if (input.equals("exit 0")) {
                 break; // EOF - exit the REPL
             }
             if (input.startsWith("echo ")) {
                 System.out.println(input.substring(5));}
+            else if (input.startsWith("type ")) {
+                if (Arrays.asList(buildInCommands).contains(input.substring(5))){
+                    System.out.println(input.substring(5)+" is a shell builtin");
+                }
+                else{
+                    System.out.println(input.substring(5)+": not found");
+                }
+                    }
+
                 else {
                     System.out.println(input + ": command not found");
                 }
