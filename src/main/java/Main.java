@@ -20,7 +20,13 @@ public class Main {
             if (input.equals("exit 0")) {
                 break; // EOF - exit the REPL
             }
-            System.out.println(input + ": command not found");
+            if (input.startsWith("echo ")) {
+                System.out.println(input.substring(5));}
+                else {
+                    System.out.println(input + ": command not found");
+                }
+            }
+
         }
     }
-}
+
