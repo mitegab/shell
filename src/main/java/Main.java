@@ -13,7 +13,13 @@ public class Main {
                 break; // EOF - exit the REPL
             }
 
+
             String input = scanner.nextLine();
+
+
+            if (input.equals("exit 0")) {
+                break; // EOF - exit the REPL
+            }
             System.out.println(input + ": command not found");
         }
     }
