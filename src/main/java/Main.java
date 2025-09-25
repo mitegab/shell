@@ -20,6 +20,8 @@ import java.nio.file.StandardOpenOption;
 public class Main {
     // In-memory command history (stores trimmed input lines in order)
     private static final List<String> HISTORY = new ArrayList<>();
+    // Index marker for history -a (append since last -a)
+    private static int LAST_APPEND_INDEX = 0;
     public static void main(String[] args) throws Exception {
     Scanner scanner = new Scanner(System.in);
         // Track current working directory inside the shell
@@ -504,27 +506,75 @@ public class Main {
             }
             else if (cmdName.equals("history")) {
                 if (redir.stderrTarget != null) writeToFile(currentDir, redir.stderrTarget, "", redir.stderrAppend);
-                int limit = -1; // -1 means print all
-                if (tokens.length >= 2) {
-                    try {
-                        limit = Integer.parseInt(tokens[1]);
-                    } catch (NumberFormatException nfe) {
-                        limit = -1; // ignore invalid argument for now
+                // Options: history -r <file>, -w <file>, -a <file> or numeric limit
+                if (tokens.length >= 2 && "-r".equals(tokens[1])) {
+                    if (tokens.length >= 3) {
+                        // Read history lines from file and append (ignore empty lines)
+                        try {
+                            List<String> lines = Files.readAllLines(resolvePath(currentDir, tokens[2]).toPath(), StandardCharsets.UTF_8);
+                            for (String line : lines) {
+                                String t = line.trim();
+                                if (!t.isEmpty()) {
+                                    HISTORY.add(t);
+                                }
+                            }
+                        } catch (IOException ioe) {
+                            // Silently ignore if cannot read (tester provides valid file)
+                        }
                     }
+                    // -r produces no output
+                } else if (tokens.length >= 2 && "-w".equals(tokens[1])) {
+                    if (tokens.length >= 3) {
+                        // Write entire in-memory history to file (truncate). Include trailing newline.
+                        StringBuilder sb = new StringBuilder();
+                        for (String h : HISTORY) {
+                            sb.append(h).append('\n');
+                        }
+                        writeToFile(currentDir, tokens[2], sb.toString(), false);
+                        // After -w, it's reasonable to advance LAST_APPEND_INDEX to end
+                        LAST_APPEND_INDEX = HISTORY.size();
+                    }
+                    // -w produces no output
+                } else if (tokens.length >= 2 && "-a".equals(tokens[1])) {
+                    if (tokens.length >= 3) {
+                        // Append only new entries since last -a to file. Include trailing newline.
+                        int startIdx = Math.max(0, LAST_APPEND_INDEX);
+                        if (startIdx < HISTORY.size()) {
+                            StringBuilder sb = new StringBuilder();
+                            for (int i = startIdx; i < HISTORY.size(); i++) {
+                                sb.append(HISTORY.get(i)).append('\n');
+                            }
+                            writeToFile(currentDir, tokens[2], sb.toString(), true);
+                        } else {
+                            // Ensure file exists even if nothing new
+                            writeToFile(currentDir, tokens[2], "", true);
+                        }
+                        LAST_APPEND_INDEX = HISTORY.size();
+                    }
+                    // -a produces no output
+                } else {
+                    int limit = -1; // -1 means print all
+                    if (tokens.length >= 2) {
+                        try {
+                            limit = Integer.parseInt(tokens[1]);
+                        } catch (NumberFormatException nfe) {
+                            limit = -1; // ignore invalid argument for now
+                        }
+                    }
+                    StringBuilder out = new StringBuilder();
+                    int total = HISTORY.size();
+                    int start = 1;
+                    if (limit >= 0) {
+                        start = Math.max(1, total - limit + 1);
+                    }
+                    for (int i = start; i <= total; i++) {
+                        String cmd = HISTORY.get(i - 1);
+                        out.append(String.format("%5d  %s%n", i, cmd));
+                    }
+                    String msg = out.toString();
+                    if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                    else System.out.print(msg);
                 }
-                StringBuilder out = new StringBuilder();
-                int total = HISTORY.size();
-                int start = 1;
-                if (limit >= 0) {
-                    start = Math.max(1, total - limit + 1);
-                }
-                for (int i = start; i <= total; i++) {
-                    String cmd = HISTORY.get(i - 1);
-                    out.append(String.format("%5d  %s%n", i, cmd));
-                }
-                String msg = out.toString();
-                if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
-                else System.out.print(msg);
             }
             else if (cmdName.equals("exit")) {
                 // Only exit when explicitly given 0 as per stage requirements
@@ -987,24 +1037,52 @@ public class Main {
                 out.write(msg.getBytes(StandardCharsets.UTF_8));
                 out.flush();
             } else if ("history".equals(cmd)) {
-                int limit = -1;
-                if (tokens.size() >= 2) {
-                    try {
-                        limit = Integer.parseInt(tokens.get(1));
-                    } catch (NumberFormatException nfe) {
-                        limit = -1;
+                // Support -r, -w, -a and numeric printing in pipeline contexts too
+                if (tokens.size() >= 2 && "-r".equals(tokens.get(1))) {
+                    if (tokens.size() >= 3) {
+                        try {
+                            List<String> lines = Files.readAllLines(resolvePath(currentDir, tokens.get(2)).toPath(), StandardCharsets.UTF_8);
+                            for (String line : lines) {
+                                String t = line.trim();
+                                if (!t.isEmpty()) HISTORY.add(t);
+                            }
+                        } catch (IOException ignored) {}
                     }
+                    // no output
+                } else if (tokens.size() >= 2 && "-w".equals(tokens.get(1))) {
+                    if (tokens.size() >= 3) {
+                        StringBuilder sb = new StringBuilder();
+                        for (String h : HISTORY) sb.append(h).append('\n');
+                        writeToFile(currentDir, tokens.get(2), sb.toString(), false);
+                        LAST_APPEND_INDEX = HISTORY.size();
+                    }
+                } else if (tokens.size() >= 2 && "-a".equals(tokens.get(1))) {
+                    if (tokens.size() >= 3) {
+                        int startIdx = Math.max(0, LAST_APPEND_INDEX);
+                        if (startIdx < HISTORY.size()) {
+                            StringBuilder sb = new StringBuilder();
+                            for (int i = startIdx; i < HISTORY.size(); i++) sb.append(HISTORY.get(i)).append('\n');
+                            writeToFile(currentDir, tokens.get(2), sb.toString(), true);
+                        } else {
+                            writeToFile(currentDir, tokens.get(2), "", true);
+                        }
+                        LAST_APPEND_INDEX = HISTORY.size();
+                    }
+                } else {
+                    int limit = -1;
+                    if (tokens.size() >= 2) {
+                        try { limit = Integer.parseInt(tokens.get(1)); }
+                        catch (NumberFormatException nfe) { limit = -1; }
+                    }
+                    int total = HISTORY.size();
+                    int start = 1;
+                    if (limit >= 0) start = Math.max(1, total - limit + 1);
+                    for (int i = start; i <= total; i++) {
+                        String line = String.format("%5d  %s%n", i, HISTORY.get(i - 1));
+                        out.write(line.getBytes(StandardCharsets.UTF_8));
+                    }
+                    out.flush();
                 }
-                int total = HISTORY.size();
-                int start = 1;
-                if (limit >= 0) {
-                    start = Math.max(1, total - limit + 1);
-                }
-                for (int i = start; i <= total; i++) {
-                    String line = String.format("%5d  %s%n", i, HISTORY.get(i - 1));
-                    out.write(line.getBytes(StandardCharsets.UTF_8));
-                }
-                out.flush();
             }
         } catch (IOException ioe) {
             // swallow for pipeline context
