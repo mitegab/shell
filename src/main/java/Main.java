@@ -49,6 +49,20 @@ public class Main {
                     // No directory provided. Do nothing for now (later stages may use HOME).
                 } else {
                     String target = tokens[1];
+                    // Expand ~ to HOME for this stage
+                    if (target.equals("~") || target.startsWith("~/")) {
+                        String home = System.getenv("HOME");
+                        if (home == null || home.isEmpty()) {
+                            home = System.getProperty("user.home", "");
+                        }
+                        if (home != null && !home.isEmpty()) {
+                            if (target.equals("~")) {
+                                target = home;
+                            } else {
+                                target = home + target.substring(1); // replace leading ~ with HOME
+                            }
+                        }
+                    }
                     File dest;
                     if (target.startsWith("/")) {
                         dest = new File(target);
