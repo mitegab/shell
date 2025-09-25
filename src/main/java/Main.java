@@ -20,8 +20,7 @@ public class Main {
     // Simple line editor to support TAB completion for builtins
     InputStream in = System.in;
     StringBuilder lineBuffer = new StringBuilder();
-    final int TABSTOP = 8;
-    final int PROMPT_LEN = 2; // "$ "
+    // No explicit tabstop/prompt width needed with newline redraw
     int ignoreSpaces = 0; // number of spaces to consume silently after a detected tab-expansion
 
         // REPL: print prompt, read chars, handle TAB/backspace/enter, repeat until EOF
@@ -60,9 +59,7 @@ public class Main {
                         }
                         if (match != null) {
                             String completed = match + " ";
-                            for (int i = 0; i < lineBuffer.length(); i++) {
-                                System.out.print("\b \b");
-                            }
+                            System.out.print("\n$ ");
                             System.out.print(completed);
                             System.out.flush();
                             lineBuffer.setLength(0);
@@ -90,16 +87,10 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            int col = (PROMPT_LEN + current.length()) % TABSTOP;
-                            int needed = (TABSTOP - col);
-                            if (needed == 0) needed = TABSTOP;
-                            // We just received the first space of the expansion, consume the rest silently
-                            ignoreSpaces = needed - 1;
-                            // complete
-                            for (int i = 0; i < lineBuffer.length(); i++) {
-                                System.out.print("\b \b");
-                            }
+                            // We just received first space from tab-expansion, consume remaining spaces.
+                            ignoreSpaces = 32; // big enough to swallow remaining expansion
                             String completed = match + " ";
+                            System.out.print("\n$ ");
                             System.out.print(completed);
                             System.out.flush();
                             lineBuffer.setLength(0);
