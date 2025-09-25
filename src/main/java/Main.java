@@ -59,14 +59,9 @@ public class Main {
                         }
                         if (match != null) {
                             String completed = match + " ";
-                            // Redraw the full line: CR + prompt + completed + clear-to-eol
-                            System.out.print('\r');
-                            System.out.print("$ ");
-                            System.out.print(completed);
-                            System.out.print("\u001B[K");
-                            System.out.flush();
                             lineBuffer.setLength(0);
                             lineBuffer.append(completed);
+                            redrawLine(lineBuffer.toString());
                         } else {
                             System.out.print("\u0007");
                             System.out.flush();
@@ -93,37 +88,30 @@ public class Main {
                             // Treat this as a TAB expansion: swallow remaining spaces and redraw
                             ignoreSpaces = 16; // consume the remaining expansion spaces
                             String completed = match + " ";
-                            System.out.print('\r');
-                            System.out.print("$ ");
-                            System.out.print(completed);
-                            System.out.print("\u001B[K");
-                            System.out.flush();
                             lineBuffer.setLength(0);
                             lineBuffer.append(completed);
+                            redrawLine(lineBuffer.toString());
                             continue;
                         }
                     }
-                    // Regular space
+                    // Regular space (not a completion): update buffer and redraw
                     lineBuffer.append(' ');
-                    System.out.print(' ');
-                    System.out.flush();
+                    redrawLine(lineBuffer.toString());
                     continue;
                 }
                 if (ch == 127 || ch == '\b') { // handle backspace/delete
                     if (lineBuffer.length() > 0) {
                         lineBuffer.setLength(lineBuffer.length() - 1);
-                        System.out.print("\b \b");
-                        System.out.flush();
+                        redrawLine(lineBuffer.toString());
                     } else {
                         System.out.print("\u0007");
                         System.out.flush();
                     }
                     continue;
                 }
-                // Regular printable character
+                // Regular printable character: update buffer and redraw
                 lineBuffer.append((char) ch);
-                System.out.print((char) ch);
-                System.out.flush();
+                redrawLine(lineBuffer.toString());
             }
 
             if (ch == -1) {
@@ -351,6 +339,16 @@ public class Main {
             }
 
     scanner.close();
+    }
+
+    // Redraw the current input line with prompt
+    private static void redrawLine(String buffer) {
+        System.out.print('\r');
+        System.out.print("$ ");
+        System.out.print(buffer);
+        // Clear to end of line (ANSI); harmless if not supported
+        System.out.print("\u001B[K");
+        System.out.flush();
     }
 
     // Find the first executable matching name in PATH and return its absolute path or null if not found.
