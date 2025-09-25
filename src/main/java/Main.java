@@ -43,6 +43,25 @@ public class Main {
                 // Print absolute current working directory tracked by the shell
                 System.out.println(currentDir.getCanonicalPath());
             }
+            else if (cmdName.equals("cd")) {
+                // Absolute path handling for this stage
+                if (tokens.length < 2) {
+                    // No directory provided. Do nothing for now (later stages may use HOME).
+                } else {
+                    String target = tokens[1];
+                    if (target.startsWith("/")) {
+                        File candidate = new File(target);
+                        if (candidate.isDirectory()) {
+                            currentDir = candidate.getCanonicalFile();
+                        } else {
+                            System.out.println("cd: " + target + ": No such file or directory");
+                        }
+                    } else {
+                        // Only absolute paths for now; print error like non-existent path
+                        System.out.println("cd: " + target + ": No such file or directory");
+                    }
+                }
+            }
             else if (input.startsWith("echo ")) {
                 System.out.println(input.substring(5));
             }
@@ -74,6 +93,7 @@ public class Main {
                         command.add(tokens[i]); // these become $1..$n
                     }
                     ProcessBuilder pb = new ProcessBuilder(command);
+                    pb.directory(currentDir);
                     pb.redirectErrorStream(true);
                     try {
                         Process process = pb.start();
