@@ -83,6 +83,21 @@ public class Main {
                         } else {
                             // Ambiguous or no matches
                             if (!execMatches.isEmpty() && cands.size() > 1) {
+                                // Try partial completion to the longest common prefix among executables
+                                String lcp = longestCommonPrefix(execMatches);
+                                if (lcp.length() > current.length()) {
+                                    // If LCP uniquely identifies a single executable, add trailing space
+                                    List<String> after = findExecutablesByPrefix(lcp);
+                                    lineBuffer.setLength(0);
+                                    if (after.size() == 1) {
+                                        lineBuffer.append(lcp).append(' ');
+                                    } else {
+                                        lineBuffer.append(lcp);
+                                    }
+                                    redrawLine(lineBuffer.toString());
+                                    lastTabPrefix = null;
+                                    tabPressCount = 0;
+                                } else {
                                 if (current.equals(lastTabPrefix) && tabPressCount >= 1) {
                                     // Second TAB: print list of matches (executables only) sorted, two spaces separated
                                     List<String> sorted = new ArrayList<>(new LinkedHashSet<>(execMatches));
@@ -103,6 +118,7 @@ public class Main {
                                     System.out.flush();
                                     lastTabPrefix = current;
                                     tabPressCount = 1;
+                                }
                                 }
                             } else {
                                 // No matches: just bell and reset
@@ -143,8 +159,23 @@ public class Main {
                                 tabPressCount = 0;
                                 continue;
                             } else if (!execMatches.isEmpty() && cands.size() > 1) {
-                                // Ambiguous: emulate double-TAB list behavior when TAB expands to spaces
+                                // Ambiguous: try partial LCP completion first
                                 ignoreSpaces = 4; // swallow expansion spaces
+                                String lcp = longestCommonPrefix(execMatches);
+                                if (lcp.length() > current.length()) {
+                                    List<String> after = findExecutablesByPrefix(lcp);
+                                    lineBuffer.setLength(0);
+                                    if (after.size() == 1) {
+                                        lineBuffer.append(lcp).append(' ');
+                                    } else {
+                                        lineBuffer.append(lcp);
+                                    }
+                                    redrawLine(lineBuffer.toString());
+                                    lastTabPrefix = null;
+                                    tabPressCount = 0;
+                                    continue;
+                                }
+                                // If no progress from LCP, emulate double-TAB list behavior
                                 if (current.equals(lastTabPrefix) && tabPressCount >= 1) {
                                     List<String> sorted = new ArrayList<>(new LinkedHashSet<>(execMatches));
                                     Collections.sort(sorted);
@@ -593,5 +624,22 @@ public class Main {
             tokens.add(current.toString());
         }
         return tokens;
+    }
+
+    // Compute the longest common prefix among a list of strings
+    private static String longestCommonPrefix(List<String> items) {
+        if (items == null || items.isEmpty()) return "";
+        String prefix = items.get(0);
+        for (int i = 1; i < items.size(); i++) {
+            String s = items.get(i);
+            int j = 0;
+            int max = Math.min(prefix.length(), s.length());
+            while (j < max && prefix.charAt(j) == s.charAt(j)) {
+                j++;
+            }
+            prefix = prefix.substring(0, j);
+            if (prefix.isEmpty()) break;
+        }
+        return prefix;
     }
 }
