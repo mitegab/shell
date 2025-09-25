@@ -3,6 +3,7 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.io.File;
 import java.io.IOException;
@@ -27,6 +28,9 @@ public class Main {
 
     // Try to enable raw mode so we receive key presses like TAB. Ignore failures (e.g., non-tty).
     boolean rawEnabled = setRawMode(true);
+    // Track double-TAB state for ambiguous completion lists
+    String lastTabPrefix = null;
+    int tabPressCount = 0;
 
         // REPL: print prompt, read chars, handle TAB/backspace/enter, repeat until EOF
         while (true) {
@@ -61,7 +65,8 @@ public class Main {
                             if (b.startsWith(current)) cands.add(b);
                         }
                         // Include executables from PATH
-                        cands.addAll(findExecutablesByPrefix(current));
+                        List<String> execMatches = findExecutablesByPrefix(current);
+                        cands.addAll(execMatches);
                         String match = null;
                         if (cands.size() == 1) {
                             match = cands.iterator().next();
@@ -72,9 +77,40 @@ public class Main {
                             lineBuffer.append(completed);
                             redrawLine(lineBuffer.toString());
                             ignoreSpaces = 0; // reset any pending space swallowing
+                            // reset double-tab state
+                            lastTabPrefix = null;
+                            tabPressCount = 0;
                         } else {
-                            System.out.print("\u0007");
-                            System.out.flush();
+                            // Ambiguous or no matches
+                            if (!execMatches.isEmpty() && cands.size() > 1) {
+                                if (current.equals(lastTabPrefix) && tabPressCount >= 1) {
+                                    // Second TAB: print list of matches (executables only) sorted, two spaces separated
+                                    List<String> sorted = new ArrayList<>(new LinkedHashSet<>(execMatches));
+                                    Collections.sort(sorted);
+                                    System.out.print("\n");
+                                    for (int i = 0; i < sorted.size(); i++) {
+                                        if (i > 0) System.out.print("  ");
+                                        System.out.print(sorted.get(i));
+                                    }
+                                    System.out.print("\n");
+                                    // Reprint prompt and current buffer (unchanged)
+                                    redrawLine(lineBuffer.toString());
+                                    // reset state after listing
+                                    lastTabPrefix = null;
+                                    tabPressCount = 0;
+                                } else {
+                                    System.out.print("\u0007");
+                                    System.out.flush();
+                                    lastTabPrefix = current;
+                                    tabPressCount = 1;
+                                }
+                            } else {
+                                // No matches: just bell and reset
+                                System.out.print("\u0007");
+                                System.out.flush();
+                                lastTabPrefix = null;
+                                tabPressCount = 0;
+                            }
                         }
                     } else {
                         System.out.print("\u0007");
@@ -93,7 +129,8 @@ public class Main {
                             for (String b : builtins) {
                                 if (b.startsWith(current)) cands.add(b);
                             }
-                            cands.addAll(findExecutablesByPrefix(current));
+                            List<String> execMatches = findExecutablesByPrefix(current);
+                            cands.addAll(execMatches);
                             if (cands.size() == 1) {
                                 String completed = cands.iterator().next() + " ";
                                 // Treat this as a TAB expansion: swallow remaining spaces and redraw
@@ -101,6 +138,31 @@ public class Main {
                                 lineBuffer.setLength(0);
                                 lineBuffer.append(completed);
                                 redrawLine(lineBuffer.toString());
+                                // reset double-tab state
+                                lastTabPrefix = null;
+                                tabPressCount = 0;
+                                continue;
+                            } else if (!execMatches.isEmpty() && cands.size() > 1) {
+                                // Ambiguous: emulate double-TAB list behavior when TAB expands to spaces
+                                ignoreSpaces = 4; // swallow expansion spaces
+                                if (current.equals(lastTabPrefix) && tabPressCount >= 1) {
+                                    List<String> sorted = new ArrayList<>(new LinkedHashSet<>(execMatches));
+                                    Collections.sort(sorted);
+                                    System.out.print("\n");
+                                    for (int i = 0; i < sorted.size(); i++) {
+                                        if (i > 0) System.out.print("  ");
+                                        System.out.print(sorted.get(i));
+                                    }
+                                    System.out.print("\n");
+                                    redrawLine(lineBuffer.toString());
+                                    lastTabPrefix = null;
+                                    tabPressCount = 0;
+                                } else {
+                                    System.out.print("\u0007");
+                                    System.out.flush();
+                                    lastTabPrefix = current;
+                                    tabPressCount = 1;
+                                }
                                 continue;
                             }
                         }
@@ -111,12 +173,18 @@ public class Main {
                     // Regular space (not a completion): update buffer and redraw
                     lineBuffer.append(' ');
                     redrawLine(lineBuffer.toString());
+                    // reset double-tab state when buffer changes
+                    lastTabPrefix = null;
+                    tabPressCount = 0;
                     continue;
                 }
                 if (ch == 127 || ch == '\b') { // handle backspace/delete
                     if (lineBuffer.length() > 0) {
                         lineBuffer.setLength(lineBuffer.length() - 1);
                         redrawLine(lineBuffer.toString());
+                        // reset double-tab state when buffer changes
+                        lastTabPrefix = null;
+                        tabPressCount = 0;
                     } else {
                         System.out.print("\u0007");
                         System.out.flush();
@@ -126,6 +194,9 @@ public class Main {
                 // Regular printable character: update buffer and redraw
                 lineBuffer.append((char) ch);
                 redrawLine(lineBuffer.toString());
+                // reset double-tab state when buffer changes
+                lastTabPrefix = null;
+                tabPressCount = 0;
             }
 
             if (ch == -1) {
