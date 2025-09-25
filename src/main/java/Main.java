@@ -56,7 +56,7 @@ public class Main {
                     int firstSpace = current.indexOf(' ');
                     if (firstSpace == -1) {
                         String[] builtins = {"echo", "exit"};
-                        List<String> cands = new ArrayList<>();
+                        LinkedHashSet<String> cands = new LinkedHashSet<>();
                         for (String b : builtins) {
                             if (b.startsWith(current)) cands.add(b);
                         }
@@ -64,7 +64,7 @@ public class Main {
                         cands.addAll(findExecutablesByPrefix(current));
                         String match = null;
                         if (cands.size() == 1) {
-                            match = cands.get(0);
+                            match = cands.iterator().next();
                         }
                         if (match != null) {
                             String completed = match + " ";
@@ -89,13 +89,13 @@ public class Main {
                         int firstSpace = current.indexOf(' ');
                         if (firstSpace == -1) {
                             String[] builtins = {"echo", "exit"};
-                            List<String> cands = new ArrayList<>();
+                            LinkedHashSet<String> cands = new LinkedHashSet<>();
                             for (String b : builtins) {
                                 if (b.startsWith(current)) cands.add(b);
                             }
                             cands.addAll(findExecutablesByPrefix(current));
                             if (cands.size() == 1) {
-                                String completed = cands.get(0) + " ";
+                                String completed = cands.iterator().next() + " ";
                                 // Treat this as a TAB expansion: swallow remaining spaces and redraw
                                 ignoreSpaces = 4; // small number just in case
                                 lineBuffer.setLength(0);
@@ -363,9 +363,9 @@ public class Main {
             cmd.add("/bin/sh");
             cmd.add("-c");
             if (enable) {
-                cmd.add("stty -echo -icanon min 1 time 0 2>/dev/null || true");
+                cmd.add("stty -echo -icanon min 1 time 0 2>/dev/null");
             } else {
-                cmd.add("stty echo icanon 2>/dev/null || true");
+                cmd.add("stty echo icanon 2>/dev/null");
             }
             Process p = new ProcessBuilder(cmd).inheritIO().start();
             int code = p.waitFor();
