@@ -3,9 +3,11 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.File;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -36,8 +38,57 @@ public class Main {
             if (tokenList.isEmpty()) {
                 continue;
             }
-            String cmdName = tokenList.get(0);
-            String[] tokens = tokenList.toArray(new String[0]);
+            // Extract redirections and clean tokens (supports with/without space)
+            Redir redir = new Redir();
+            List<String> cleaned = new ArrayList<>();
+            for (int i = 0; i < tokenList.size(); i++) {
+                String t = tokenList.get(i);
+                String next = (i + 1 < tokenList.size()) ? tokenList.get(i + 1) : null;
+                if (t.equals(">") || t.equals("1>") || t.equals(">>") || t.equals("1>>")) {
+                    if (next != null) {
+                        redir.stdoutTarget = next;
+                        redir.stdoutAppend = t.endsWith(">>");
+                        i++;
+                    }
+                } else if (t.equals("2>") || t.equals("2>>")) {
+                    if (next != null) {
+                        redir.stderrTarget = next;
+                        redir.stderrAppend = t.endsWith(">>");
+                        i++;
+                    }
+                } else if (t.startsWith("1>>")) {
+                    redir.stdoutTarget = t.substring(3).isEmpty() && next != null ? next : t.substring(3);
+                    redir.stdoutAppend = true;
+                    if (t.substring(3).isEmpty() && next != null) { i++; }
+                } else if (t.startsWith(">>")) {
+                    redir.stdoutTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                    redir.stdoutAppend = true;
+                    if (t.substring(2).isEmpty() && next != null) { i++; }
+                } else if (t.startsWith("1>")) {
+                    redir.stdoutTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                    redir.stdoutAppend = false;
+                    if (t.substring(2).isEmpty() && next != null) { i++; }
+                } else if (t.startsWith(">")) {
+                    redir.stdoutTarget = t.substring(1).isEmpty() && next != null ? next : t.substring(1);
+                    redir.stdoutAppend = false;
+                    if (t.substring(1).isEmpty() && next != null) { i++; }
+                } else if (t.startsWith("2>>")) {
+                    redir.stderrTarget = t.substring(3).isEmpty() && next != null ? next : t.substring(3);
+                    redir.stderrAppend = true;
+                    if (t.substring(3).isEmpty() && next != null) { i++; }
+                } else if (t.startsWith("2>")) {
+                    redir.stderrTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                    redir.stderrAppend = false;
+                    if (t.substring(2).isEmpty() && next != null) { i++; }
+                } else {
+                    cleaned.add(t);
+                }
+            }
+            if (cleaned.isEmpty()) {
+                continue;
+            }
+            String cmdName = cleaned.get(0);
+            String[] tokens = cleaned.toArray(new String[0]);
             String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd"};
 
             if (input.equals("exit 0")) {
@@ -45,7 +96,14 @@ public class Main {
             }
             if (cmdName.equals("pwd")) {
                 // Print absolute current working directory tracked by the shell
-                System.out.println(currentDir.getCanonicalPath());
+                String line = currentDir.getCanonicalPath() + System.lineSeparator();
+                // Ensure stderr file exists if redirected (builtins don't naturally write stderr)
+                if (redir.stderrTarget != null) writeToFile(currentDir, redir.stderrTarget, "", redir.stderrAppend);
+                if (redir.stdoutTarget != null) {
+                    writeToFile(currentDir, redir.stdoutTarget, line, redir.stdoutAppend);
+                } else {
+                    System.out.print(line);
+                }
             }
             else if (cmdName.equals("cd")) {
                 // cd handling (absolute and relative paths)
@@ -89,32 +147,50 @@ public class Main {
             }
             else if (cmdName.equals("echo")) {
                 // Join arguments with a single space (outside-quote spaces collapsed, quoted spaces preserved in tokens)
+                if (redir.stderrTarget != null) writeToFile(currentDir, redir.stderrTarget, "", redir.stderrAppend);
                 if (tokens.length > 1) {
                     StringBuilder out = new StringBuilder();
                     for (int i = 1; i < tokens.length; i++) {
                         if (i > 1) out.append(' ');
                         out.append(tokens[i]);
                     }
-                    System.out.println(out.toString());
+                    if (redir.stdoutTarget != null) {
+                        writeToFile(currentDir, redir.stdoutTarget, out.toString() + System.lineSeparator(), redir.stdoutAppend);
+                    } else {
+                        System.out.println(out.toString());
+                    }
                 } else {
-                    System.out.println();
+                    if (redir.stdoutTarget != null) {
+                        writeToFile(currentDir, redir.stdoutTarget, System.lineSeparator(), redir.stdoutAppend);
+                    } else {
+                        System.out.println();
+                    }
                 }
             }
             else if (cmdName.equals("type")) {
                 if (tokens.length < 2) {
-                    System.out.println("type: missing operand");
+                    String msg = "type: missing operand" + System.lineSeparator();
+                    if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                    else System.out.print(msg);
                     continue;
                 }
+                if (redir.stderrTarget != null) writeToFile(currentDir, redir.stderrTarget, "", redir.stderrAppend);
                 String name = tokens[1];
                 if (Arrays.asList(buildInCommands).contains(name)){
-                    System.out.println(name+" is a shell builtin");
+                    String msg = name+" is a shell builtin" + System.lineSeparator();
+                    if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                    else System.out.print(msg);
                 }
                 else{
                     String path = findInPath(name);
                     if (path != null) {
-                        System.out.println(name + " is " + path);
+                        String msg = name + " is " + path + System.lineSeparator();
+                        if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                        else System.out.print(msg);
                     } else {
-                        System.out.println(name + ": not found");
+                        String msg = name + ": not found" + System.lineSeparator();
+                        if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                        else System.out.print(msg);
                     }
                 }
             }
@@ -133,15 +209,23 @@ public class Main {
                     }
                     ProcessBuilder pb = new ProcessBuilder(command);
                     pb.directory(currentDir);
-                    pb.redirectErrorStream(true);
+                    // Configure redirections
+                    if (redir.stdoutTarget != null) {
+                        File f = resolvePath(currentDir, redir.stdoutTarget);
+                        pb.redirectOutput(redir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                            : ProcessBuilder.Redirect.to(f));
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    }
+                    if (redir.stderrTarget != null) {
+                        File f = resolvePath(currentDir, redir.stderrTarget);
+                        pb.redirectError(redir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                           : ProcessBuilder.Redirect.to(f));
+                    } else {
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    }
                     try {
                         Process process = pb.start();
-                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                System.out.println(line);
-                            }
-                        }
                         process.waitFor();
                     } catch (IOException | InterruptedException e) {
                         // If execution fails, mimic not found message
@@ -173,6 +257,36 @@ public class Main {
             }
         }
         return null;
+    }
+
+    // Redirection configuration holder
+    private static class Redir {
+        String stdoutTarget;
+        boolean stdoutAppend;
+        String stderrTarget;
+        boolean stderrAppend;
+    }
+
+    private static File resolvePath(File currentDir, String target) {
+        if (target == null) return null;
+        if (target.startsWith("/")) return new File(target);
+        return new File(currentDir, target);
+    }
+
+    private static void writeToFile(File currentDir, String target, String content, boolean append) {
+        try {
+            File f = resolvePath(currentDir, target);
+            Path p = f.toPath();
+            if (append) {
+                Files.write(p, content.getBytes(StandardCharsets.UTF_8),
+                           StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE);
+            } else {
+                Files.write(p, content.getBytes(StandardCharsets.UTF_8),
+                           StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            }
+        } catch (IOException e) {
+            // If writing fails, print nothing (real shells may report errors to stderr)
+        }
     }
 
     // Tokenize an input line honoring single and double quotes and backslashes
