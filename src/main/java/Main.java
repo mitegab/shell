@@ -54,9 +54,10 @@ public class Main {
                         }
                         if (match != null) {
                             String completed = match + " ";
-                            // Redraw the whole line to ensure exact expected display
-                            System.out.print('\r');
-                            System.out.print("$ ");
+                            // Erase the current typed fragment and print completion
+                            for (int i = 0; i < lineBuffer.length(); i++) {
+                                System.out.print("\b \b");
+                            }
                             System.out.print(completed);
                             System.out.flush();
                             lineBuffer.setLength(0);
