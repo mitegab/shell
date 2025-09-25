@@ -65,6 +65,7 @@ public class Main {
                             lineBuffer.setLength(0);
                             lineBuffer.append(completed);
                             redrawLine(lineBuffer.toString());
+                            ignoreSpaces = 0; // reset any pending space swallowing
                         } else {
                             System.out.print("\u0007");
                             System.out.flush();
@@ -77,25 +78,30 @@ public class Main {
                 }
                 if (ch == ' ') {
                     // Detect terminals that expand TAB into spaces to next tab stop
-                    String current = lineBuffer.toString();
-                    int firstSpace = current.indexOf(' ');
-                    if (firstSpace == -1) {
-                        String[] builtins = {"echo", "exit"};
-                        String match = null;
-                        for (String b : builtins) {
-                            if (b.startsWith(current)) {
-                                if (match == null) match = b; else { match = null; break; }
+                    if (!rawEnabled) {
+                        String current = lineBuffer.toString();
+                        int firstSpace = current.indexOf(' ');
+                        if (firstSpace == -1) {
+                            String[] builtins = {"echo", "exit"};
+                            String match = null;
+                            for (String b : builtins) {
+                                if (b.startsWith(current)) {
+                                    if (match == null) match = b; else { match = null; break; }
+                                }
+                            }
+                            if (match != null) {
+                                // Treat this as a TAB expansion: swallow remaining spaces and redraw
+                                ignoreSpaces = 4; // small number just in case, will reset on next non-space
+                                String completed = match + " ";
+                                lineBuffer.setLength(0);
+                                lineBuffer.append(completed);
+                                redrawLine(lineBuffer.toString());
+                                continue;
                             }
                         }
-                        if (match != null) {
-                            // Treat this as a TAB expansion: swallow remaining spaces and redraw
-                            ignoreSpaces = 16; // consume the remaining expansion spaces
-                            String completed = match + " ";
-                            lineBuffer.setLength(0);
-                            lineBuffer.append(completed);
-                            redrawLine(lineBuffer.toString());
-                            continue;
-                        }
+                    } else {
+                        // In raw mode, never treat spaces as TAB
+                        ignoreSpaces = 0;
                     }
                     // Regular space (not a completion): update buffer and redraw
                     lineBuffer.append(' ');
