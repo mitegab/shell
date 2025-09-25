@@ -18,6 +18,8 @@ import java.nio.file.StandardOpenOption;
  
 
 public class Main {
+    // In-memory command history (stores trimmed input lines in order)
+    private static final List<String> HISTORY = new ArrayList<>();
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
         // Track current working directory inside the shell
@@ -243,6 +245,9 @@ public class Main {
                 continue; // empty line, show prompt again
             }
 
+            // Record every non-empty command line in history BEFORE executing it
+            HISTORY.add(input);
+
             List<String> tokenList = tokenize(input);
             if (tokenList.isEmpty()) {
                 continue;
@@ -423,6 +428,30 @@ public class Main {
                         else System.out.print(msg);
                     }
                 }
+            }
+            else if (cmdName.equals("history")) {
+                if (redir.stderrTarget != null) writeToFile(currentDir, redir.stderrTarget, "", redir.stderrAppend);
+                int limit = -1; // -1 means print all
+                if (tokens.length >= 2) {
+                    try {
+                        limit = Integer.parseInt(tokens[1]);
+                    } catch (NumberFormatException nfe) {
+                        limit = -1; // ignore invalid argument for now
+                    }
+                }
+                StringBuilder out = new StringBuilder();
+                int total = HISTORY.size();
+                int start = 1;
+                if (limit >= 0) {
+                    start = Math.max(1, total - limit + 1);
+                }
+                for (int i = start; i <= total; i++) {
+                    String cmd = HISTORY.get(i - 1);
+                    out.append(String.format("%5d  %s%n", i, cmd));
+                }
+                String msg = out.toString();
+                if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
+                else System.out.print(msg);
             }
             else if (cmdName.equals("exit")) {
                 // Only exit when explicitly given 0 as per stage requirements
@@ -883,6 +912,25 @@ public class Main {
                     }
                 }
                 out.write(msg.getBytes(StandardCharsets.UTF_8));
+                out.flush();
+            } else if ("history".equals(cmd)) {
+                int limit = -1;
+                if (tokens.size() >= 2) {
+                    try {
+                        limit = Integer.parseInt(tokens.get(1));
+                    } catch (NumberFormatException nfe) {
+                        limit = -1;
+                    }
+                }
+                int total = HISTORY.size();
+                int start = 1;
+                if (limit >= 0) {
+                    start = Math.max(1, total - limit + 1);
+                }
+                for (int i = start; i <= total; i++) {
+                    String line = String.format("%5d  %s%n", i, HISTORY.get(i - 1));
+                    out.write(line.getBytes(StandardCharsets.UTF_8));
+                }
                 out.flush();
             }
         } catch (IOException ioe) {
