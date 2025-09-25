@@ -21,7 +21,7 @@ public class Main {
     // In-memory command history (stores trimmed input lines in order)
     private static final List<String> HISTORY = new ArrayList<>();
     public static void main(String[] args) throws Exception {
-        Scanner scanner = new Scanner(System.in);
+    Scanner scanner = new Scanner(System.in);
         // Track current working directory inside the shell
         File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
 
@@ -185,7 +185,7 @@ public class Main {
                                 } else {
                                     System.out.print("\u0007");
                                     System.out.flush();
-                                    lastTabPrefix = null;
+                                    lastTabPrefix = current;
                                     tabPressCount = 1;
                                 }
                                 }
