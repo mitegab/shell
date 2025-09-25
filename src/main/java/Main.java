@@ -53,11 +53,14 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            String suffix = match.substring(trimmed.length()) + " ";
-                            // Echo the completion to the terminal
-                            System.out.print(suffix);
+                            String completed = match + " ";
+                            // Redraw the whole line to ensure exact expected display
+                            System.out.print('\r');
+                            System.out.print("$ ");
+                            System.out.print(completed);
                             System.out.flush();
-                            lineBuffer.append(suffix);
+                            lineBuffer.setLength(0);
+                            lineBuffer.append(completed);
                         } else {
                             // No unambiguous match: ring bell
                             System.out.print("\u0007");
