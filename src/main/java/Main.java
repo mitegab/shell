@@ -319,7 +319,7 @@ public class Main {
             }
             String cmdName = cleaned.get(0);
             String[] tokens = cleaned.toArray(new String[0]);
-            String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd"};
+            String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd", "history"};
 
             if (input.equals("exit 0")) {
                 System.exit(0); // Exit with status code 0 as required
@@ -842,7 +842,7 @@ public class Main {
     }
 
     private static boolean isPipelineBuiltin(String cmd) {
-        return "echo".equals(cmd) || "type".equals(cmd) || "pwd".equals(cmd);
+        return "echo".equals(cmd) || "type".equals(cmd) || "pwd".equals(cmd) || "history".equals(cmd);
     }
 
     // Minimal builtin executor for pipeline contexts. Writes to provided OutputStream only (stdout).
@@ -868,7 +868,7 @@ public class Main {
                 out.write(line.getBytes(StandardCharsets.UTF_8));
                 out.flush();
             } else if ("type".equals(cmd)) {
-                String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd"};
+                String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd", "history"};
                 String msg;
                 if (tokens.size() < 2) {
                     msg = "type: missing operand" + System.lineSeparator();
