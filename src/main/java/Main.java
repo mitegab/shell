@@ -58,10 +58,15 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            String suffix = match.substring(current.length()) + " ";
-                            System.out.print(suffix);
+                            String completed = match + " ";
+                            // Redraw the full line: CR + prompt + completed + clear-to-eol
+                            System.out.print('\r');
+                            System.out.print("$ ");
+                            System.out.print(completed);
+                            System.out.print("\u001B[K");
                             System.out.flush();
-                            lineBuffer.append(suffix);
+                            lineBuffer.setLength(0);
+                            lineBuffer.append(completed);
                         } else {
                             System.out.print("\u0007");
                             System.out.flush();
@@ -85,12 +90,16 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            // Treat this as a TAB expansion: don't echo the incoming spaces
+                            // Treat this as a TAB expansion: swallow remaining spaces and redraw
                             ignoreSpaces = 16; // consume the remaining expansion spaces
-                            String suffix = match.substring(current.length()) + " ";
-                            System.out.print(suffix);
+                            String completed = match + " ";
+                            System.out.print('\r');
+                            System.out.print("$ ");
+                            System.out.print(completed);
+                            System.out.print("\u001B[K");
                             System.out.flush();
-                            lineBuffer.append(suffix);
+                            lineBuffer.setLength(0);
+                            lineBuffer.append(completed);
                             continue;
                         }
                     }
