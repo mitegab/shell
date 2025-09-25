@@ -32,8 +32,12 @@ public class Main {
                 continue; // empty line, show prompt again
             }
 
-            String[] tokens = input.split("\\s+");
-            String cmdName = tokens[0];
+            List<String> tokenList = tokenize(input);
+            if (tokenList.isEmpty()) {
+                continue;
+            }
+            String cmdName = tokenList.get(0);
+            String[] tokens = tokenList.toArray(new String[0]);
             String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd"};
 
             if (input.equals("exit 0")) {
@@ -83,11 +87,25 @@ public class Main {
                     }
                 }
             }
-            else if (input.startsWith("echo ")) {
-                System.out.println(input.substring(5));
+            else if (cmdName.equals("echo")) {
+                // Join arguments with a single space (outside-quote spaces collapsed, quoted spaces preserved in tokens)
+                if (tokens.length > 1) {
+                    StringBuilder out = new StringBuilder();
+                    for (int i = 1; i < tokens.length; i++) {
+                        if (i > 1) out.append(' ');
+                        out.append(tokens[i]);
+                    }
+                    System.out.println(out.toString());
+                } else {
+                    System.out.println();
+                }
             }
-            else if (input.startsWith("type ")) {
-                String name = input.substring(5).trim();
+            else if (cmdName.equals("type")) {
+                if (tokens.length < 2) {
+                    System.out.println("type: missing operand");
+                    continue;
+                }
+                String name = tokens[1];
                 if (Arrays.asList(buildInCommands).contains(name)){
                     System.out.println(name+" is a shell builtin");
                 }
@@ -155,5 +173,70 @@ public class Main {
             }
         }
         return null;
+    }
+
+    // Tokenize an input line honoring single and double quotes and backslashes
+    private static List<String> tokenize(String input) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingle = false;
+        boolean inDouble = false;
+        int n = input.length();
+        for (int i = 0; i < n; i++) {
+            char c = input.charAt(i);
+            if (inSingle) {
+                if (c == '\'') {
+                    inSingle = false;
+                } else {
+                    current.append(c); // backslashes are literal in single quotes
+                }
+            } else if (inDouble) {
+                if (c == '"') {
+                    inDouble = false;
+                } else if (c == '\\') {
+                    if (i + 1 < n) {
+                        char next = input.charAt(i + 1);
+                        // In double quotes, backslash escapes " and \
+                        if (next == '"' || next == '\\') {
+                            current.append(next);
+                            i++;
+                        } else {
+                            // Keep backslash literally for other chars
+                            current.append('\\');
+                        }
+                    } else {
+                        current.append('\\');
+                    }
+                } else {
+                    current.append(c);
+                }
+            } else {
+                if (Character.isWhitespace(c)) {
+                    if (current.length() > 0) {
+                        tokens.add(current.toString());
+                        current.setLength(0);
+                    }
+                    // collapse consecutive spaces
+                } else if (c == '\'') {
+                    inSingle = true;
+                } else if (c == '"') {
+                    inDouble = true;
+                } else if (c == '\\') {
+                    if (i + 1 < n) {
+                        // Outside quotes, backslash escapes next char (including whitespace)
+                        current.append(input.charAt(i + 1));
+                        i++;
+                    } else {
+                        current.append('\\');
+                    }
+                } else {
+                    current.append(c);
+                }
+            }
+        }
+        if (current.length() > 0) {
+            tokens.add(current.toString());
+        }
+        return tokens;
     }
 }
