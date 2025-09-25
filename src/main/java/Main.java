@@ -44,20 +44,27 @@ public class Main {
                 System.out.println(currentDir.getCanonicalPath());
             }
             else if (cmdName.equals("cd")) {
-                // Absolute path handling for this stage
+                // cd handling (absolute and relative paths)
                 if (tokens.length < 2) {
                     // No directory provided. Do nothing for now (later stages may use HOME).
                 } else {
                     String target = tokens[1];
+                    File dest;
                     if (target.startsWith("/")) {
-                        File candidate = new File(target);
-                        if (candidate.isDirectory()) {
-                            currentDir = candidate.getCanonicalFile();
-                        } else {
-                            System.out.println("cd: " + target + ": No such file or directory");
-                        }
+                        dest = new File(target);
                     } else {
-                        // Only absolute paths for now; print error like non-existent path
+                        // relative path against currentDir
+                        dest = new File(currentDir, target);
+                    }
+                    File canonical;
+                    try {
+                        canonical = dest.getCanonicalFile();
+                    } catch (IOException e) {
+                        canonical = dest;
+                    }
+                    if (canonical.isDirectory()) {
+                        currentDir = canonical;
+                    } else {
                         System.out.println("cd: " + target + ": No such file or directory");
                     }
                 }
