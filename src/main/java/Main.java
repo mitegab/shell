@@ -992,13 +992,16 @@ public class Main {
             }
         }
     }
+ 
 
     private static boolean isPipelineBuiltin(String cmd) {
+
         return "echo".equals(cmd) || "type".equals(cmd) || "pwd".equals(cmd) || "history".equals(cmd);
     }
 
     // Minimal builtin executor for pipeline contexts. Writes to provided OutputStream only (stdout).
     private static void execBuiltinForPipeline(List<String> tokens, File currentDir, InputStream in, OutputStream out) {
+        
         String cmd = tokens.get(0);
         try {
             if ("echo".equals(cmd)) {
