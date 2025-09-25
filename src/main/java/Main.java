@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,24 +12,87 @@ import java.nio.file.StandardOpenOption;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-    Scanner scanner = new Scanner(System.in);
-    // Track current working directory inside the shell
-    File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
+        Scanner scanner = new Scanner(System.in);
+        // Track current working directory inside the shell
+        File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
 
-        // REPL: print prompt, read a line, respond, repeat until EOF
+        // Simple line editor to support TAB completion for builtins
+        InputStream in = System.in;
+        StringBuilder lineBuffer = new StringBuilder();
+
+        // REPL: print prompt, read chars, handle TAB/backspace/enter, repeat until EOF
         while (true) {
             System.out.print("$ ");
             System.out.flush();
 
-            if (!scanner.hasNextLine()) {
-                break; // EOF - exit the REPL
+            lineBuffer.setLength(0);
+
+            int ch;
+            readLoop:
+            while ((ch = in.read()) != -1) {
+                if (ch == '\r') {
+                    // ignore carriage return, wait for newline or treat as newline if no LF follows
+                    continue;
+                }
+                if (ch == '\n') {
+                    System.out.print("\n");
+                    System.out.flush();
+                    break readLoop; // process the current line
+                }
+                if (ch == '\t') {
+                    // TAB completion for builtins: echo, exit (first token only)
+                    String current = lineBuffer.toString();
+                    String trimmed = current; // don't trim, we only complete if no spaces yet
+                    int firstSpace = trimmed.indexOf(' ');
+                    if (firstSpace == -1) {
+                        String[] builtins = {"echo", "exit"};
+                        String match = null;
+                        for (String b : builtins) {
+                            if (b.startsWith(trimmed)) {
+                                if (match == null) match = b; else { match = null; break; }
+                            }
+                        }
+                        if (match != null) {
+                            String suffix = match.substring(trimmed.length()) + " ";
+                            // Echo the completion to the terminal
+                            System.out.print(suffix);
+                            System.out.flush();
+                            lineBuffer.append(suffix);
+                        } else {
+                            // No unambiguous match: ring bell
+                            System.out.print("\u0007");
+                            System.out.flush();
+                        }
+                    } else {
+                        // Don't complete after a space for this stage
+                        System.out.print("\u0007");
+                        System.out.flush();
+                    }
+                    continue;
+                }
+                if (ch == 127 || ch == '\b') { // handle backspace/delete
+                    if (lineBuffer.length() > 0) {
+                        // Remove last char from buffer and from screen
+                        lineBuffer.setLength(lineBuffer.length() - 1);
+                        System.out.print("\b \b");
+                        System.out.flush();
+                    } else {
+                        System.out.print("\u0007");
+                        System.out.flush();
+                    }
+                    continue;
+                }
+                // Regular printable character
+                lineBuffer.append((char) ch);
+                System.out.print((char) ch);
+                System.out.flush();
             }
 
-
-            String input = scanner.nextLine();
-            if (input == null) {
-                break;
+            if (ch == -1) {
+                break; // EOF
             }
+
+            String input = lineBuffer.toString();
             input = input.trim();
             if (input.isEmpty()) {
                 continue; // empty line, show prompt again
@@ -192,6 +256,14 @@ public class Main {
                         if (redir.stdoutTarget != null) writeToFile(currentDir, redir.stdoutTarget, msg, redir.stdoutAppend);
                         else System.out.print(msg);
                     }
+                }
+            }
+            else if (cmdName.equals("exit")) {
+                // Only exit when explicitly given 0 as per stage requirements
+                if (tokens.length >= 2 && tokens[1].equals("0")) {
+                    System.exit(0);
+                } else {
+                    // Not supported variants: treat as no-op for now
                 }
             }
             else {
