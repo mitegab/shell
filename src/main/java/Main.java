@@ -23,6 +23,9 @@ public class Main {
     // No explicit tabstop/prompt width needed with newline redraw
     int ignoreSpaces = 0; // number of spaces to consume silently after a detected tab-expansion
 
+    // Try to enable raw mode so we receive key presses like TAB. Ignore failures (e.g., non-tty).
+    boolean rawEnabled = setRawMode(true);
+
         // REPL: print prompt, read chars, handle TAB/backspace/enter, repeat until EOF
         while (true) {
             System.out.print("$ ");
@@ -338,7 +341,26 @@ public class Main {
             }
             }
 
+    // Restore terminal mode if we changed it
+    if (rawEnabled) setRawMode(false);
     scanner.close();
+    }
+
+    private static boolean setRawMode(boolean enable) {
+        try {
+            List<String> cmd = new ArrayList<>();
+            cmd.add("/bin/sh");
+            cmd.add("-c");
+            if (enable) {
+                cmd.add("stty -echo -icanon min 1 time 0 2>/dev/null || true");
+            } else {
+                cmd.add("stty echo icanon 2>/dev/null || true");
+            }
+            new ProcessBuilder(cmd).inheritIO().start().waitFor();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // Redraw the current input line with prompt
