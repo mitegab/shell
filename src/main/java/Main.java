@@ -2,6 +2,8 @@ import java.util.Scanner;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.LinkedHashSet;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -54,11 +56,15 @@ public class Main {
                     int firstSpace = current.indexOf(' ');
                     if (firstSpace == -1) {
                         String[] builtins = {"echo", "exit"};
-                        String match = null;
+                        List<String> cands = new ArrayList<>();
                         for (String b : builtins) {
-                            if (b.startsWith(current)) {
-                                if (match == null) match = b; else { match = null; break; }
-                            }
+                            if (b.startsWith(current)) cands.add(b);
+                        }
+                        // Include executables from PATH
+                        cands.addAll(findExecutablesByPrefix(current));
+                        String match = null;
+                        if (cands.size() == 1) {
+                            match = cands.get(0);
                         }
                         if (match != null) {
                             String completed = match + " ";
@@ -83,16 +89,15 @@ public class Main {
                         int firstSpace = current.indexOf(' ');
                         if (firstSpace == -1) {
                             String[] builtins = {"echo", "exit"};
-                            String match = null;
+                            List<String> cands = new ArrayList<>();
                             for (String b : builtins) {
-                                if (b.startsWith(current)) {
-                                    if (match == null) match = b; else { match = null; break; }
-                                }
+                                if (b.startsWith(current)) cands.add(b);
                             }
-                            if (match != null) {
+                            cands.addAll(findExecutablesByPrefix(current));
+                            if (cands.size() == 1) {
+                                String completed = cands.get(0) + " ";
                                 // Treat this as a TAB expansion: swallow remaining spaces and redraw
-                                ignoreSpaces = 4; // small number just in case, will reset on next non-space
-                                String completed = match + " ";
+                                ignoreSpaces = 4; // small number just in case
                                 lineBuffer.setLength(0);
                                 lineBuffer.append(completed);
                                 redrawLine(lineBuffer.toString());
@@ -393,6 +398,33 @@ public class Main {
             }
         }
         return null;
+    }
+
+    // Find all executable file names in PATH that start with the given prefix.
+    private static List<String> findExecutablesByPrefix(String prefix) {
+        List<String> results = new ArrayList<>();
+        if (prefix == null || prefix.isEmpty()) return results;
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isEmpty()) return results;
+        String[] dirs = pathEnv.split(":", -1);
+        Set<String> seen = new LinkedHashSet<>();
+        for (String dir : dirs) {
+            String base = dir.isEmpty() ? "." : dir;
+            File d = new File(base);
+            if (!d.isDirectory()) continue;
+            File[] files = d.listFiles();
+            if (files == null) continue;
+            for (File f : files) {
+                String name = f.getName();
+                if (!name.startsWith(prefix)) continue;
+                if (f.isFile() && f.canExecute()) {
+                    if (seen.add(name)) {
+                        results.add(name);
+                    }
+                }
+            }
+        }
+        return results;
     }
 
     // Redirection configuration holder
