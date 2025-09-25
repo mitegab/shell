@@ -58,12 +58,10 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            String completed = match + " ";
-                            System.out.print("\n$ ");
-                            System.out.print(completed);
+                            String suffix = match.substring(current.length()) + " ";
+                            System.out.print(suffix);
                             System.out.flush();
-                            lineBuffer.setLength(0);
-                            lineBuffer.append(completed);
+                            lineBuffer.append(suffix);
                         } else {
                             System.out.print("\u0007");
                             System.out.flush();
@@ -87,14 +85,12 @@ public class Main {
                             }
                         }
                         if (match != null) {
-                            // We just received first space from tab-expansion, consume remaining spaces.
-                            ignoreSpaces = 32; // big enough to swallow remaining expansion
-                            String completed = match + " ";
-                            System.out.print("\n$ ");
-                            System.out.print(completed);
+                            // Treat this as a TAB expansion: don't echo the incoming spaces
+                            ignoreSpaces = 16; // consume the remaining expansion spaces
+                            String suffix = match.substring(current.length()) + " ";
+                            System.out.print(suffix);
                             System.out.flush();
-                            lineBuffer.setLength(0);
-                            lineBuffer.append(completed);
+                            lineBuffer.append(suffix);
                             continue;
                         }
                     }
