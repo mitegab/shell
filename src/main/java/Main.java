@@ -1,5 +1,6 @@
 import java.util.Scanner;
 import java.util.Arrays;
+import java.io.File;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -24,11 +25,17 @@ public class Main {
             if (input.startsWith("echo ")) {
                 System.out.println(input.substring(5));}
             else if (input.startsWith("type ")) {
-                if (Arrays.asList(buildInCommands).contains(input.substring(5))){
-                    System.out.println(input.substring(5)+" is a shell builtin");
+                String name = input.substring(5).trim();
+                if (Arrays.asList(buildInCommands).contains(name)){
+                    System.out.println(name+" is a shell builtin");
                 }
                 else{
-                    System.out.println(input.substring(5)+": not found");
+                    String path = findInPath(name);
+                    if (path != null) {
+                        System.out.println(name + " is " + path);
+                    } else {
+                        System.out.println(name + ": not found");
+                    }
                 }
                     }
 
@@ -38,5 +45,20 @@ public class Main {
             }
 
         }
-    }
 
+    // Find the first executable matching name in PATH and return its absolute path or null if not found.
+    private static String findInPath(String name) {
+        if (name == null || name.isEmpty()) return null;
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isEmpty()) return null;
+        String[] dirs = pathEnv.split(":", -1); // keep empty entries as current dir
+        for (String dir : dirs) {
+            String base = dir.isEmpty() ? "." : dir;
+            File candidate = new File(base, name);
+            if (candidate.exists() && candidate.isFile() && candidate.canExecute()) {
+                return candidate.getAbsolutePath();
+            }
+        }
+        return null;
+    }
+}
