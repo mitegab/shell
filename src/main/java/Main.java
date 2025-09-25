@@ -244,6 +244,24 @@ public class Main {
             if (tokenList.isEmpty()) {
                 continue;
             }
+            
+            // Check for pipeline (|) operator
+            int pipeIndex = -1;
+            for (int i = 0; i < tokenList.size(); i++) {
+                if (tokenList.get(i).equals("|")) {
+                    pipeIndex = i;
+                    break;
+                }
+            }
+            
+            if (pipeIndex > 0 && pipeIndex < tokenList.size() - 1) {
+                // This is a pipeline: split into left and right commands
+                List<String> leftTokens = tokenList.subList(0, pipeIndex);
+                List<String> rightTokens = tokenList.subList(pipeIndex + 1, tokenList.size());
+                executePipeline(leftTokens, rightTokens, currentDir);
+                continue;
+            }
+            
             // Extract redirections and clean tokens (supports with/without space)
             Redir redir = new Redir();
             List<String> cleaned = new ArrayList<>();
@@ -607,6 +625,13 @@ public class Main {
                     inSingle = true;
                 } else if (c == '"') {
                     inDouble = true;
+                } else if (c == '|') {
+                    // Pipe character: emit current token if any, then emit pipe as separate token
+                    if (current.length() > 0) {
+                        tokens.add(current.toString());
+                        current.setLength(0);
+                    }
+                    tokens.add("|");
                 } else if (c == '\\') {
                     if (i + 1 < n) {
                         // Outside quotes, backslash escapes next char (including whitespace)
@@ -624,6 +649,182 @@ public class Main {
             tokens.add(current.toString());
         }
         return tokens;
+    }
+
+    // Execute a pipeline between two commands
+    private static void executePipeline(List<String> leftTokens, List<String> rightTokens, File currentDir) {
+        try {
+            // Parse left command (remove redirections, get clean tokens)
+            Redir leftRedir = new Redir();
+            List<String> leftCleaned = extractRedirectionsAndClean(leftTokens, leftRedir);
+            if (leftCleaned.isEmpty()) return;
+            
+            // Parse right command (remove redirections, get clean tokens) 
+            Redir rightRedir = new Redir();
+            List<String> rightCleaned = extractRedirectionsAndClean(rightTokens, rightRedir);
+            if (rightCleaned.isEmpty()) return;
+            
+            String leftCmd = leftCleaned.get(0);
+            String rightCmd = rightCleaned.get(0);
+            
+            // Find executables in PATH
+            String leftPath = findInPath(leftCmd);
+            String rightPath = findInPath(rightCmd);
+            
+            if (leftPath == null) {
+                System.out.println(leftCmd + ": command not found");
+                return;
+            }
+            if (rightPath == null) {
+                System.out.println(rightCmd + ": command not found");
+                return;
+            }
+            
+            // Create left process command
+            List<String> leftCommand = new ArrayList<>();
+            leftCommand.add("/bin/sh");
+            leftCommand.add("-c");
+            leftCommand.add("exec \"$0\" \"$@\"");
+            leftCommand.add(leftCmd);
+            for (int i = 1; i < leftCleaned.size(); i++) {
+                leftCommand.add(leftCleaned.get(i));
+            }
+            
+            // Create right process command
+            List<String> rightCommand = new ArrayList<>();
+            rightCommand.add("/bin/sh");
+            rightCommand.add("-c");
+            rightCommand.add("exec \"$0\" \"$@\"");
+            rightCommand.add(rightCmd);
+            for (int i = 1; i < rightCleaned.size(); i++) {
+                rightCommand.add(rightCleaned.get(i));
+            }
+            
+            // Create ProcessBuilders
+            ProcessBuilder leftPb = new ProcessBuilder(leftCommand);
+            ProcessBuilder rightPb = new ProcessBuilder(rightCommand);
+            
+            leftPb.directory(currentDir);
+            rightPb.directory(currentDir);
+            
+            // Handle redirections for left command
+            if (leftRedir.stderrTarget != null) {
+                File f = resolvePath(currentDir, leftRedir.stderrTarget);
+                leftPb.redirectError(leftRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f) 
+                                                           : ProcessBuilder.Redirect.to(f));
+            } else {
+                leftPb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            }
+            
+            // Handle redirections for right command
+            if (rightRedir.stdoutTarget != null) {
+                File f = resolvePath(currentDir, rightRedir.stdoutTarget);
+                rightPb.redirectOutput(rightRedir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                              : ProcessBuilder.Redirect.to(f));
+            } else {
+                rightPb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            }
+            
+            if (rightRedir.stderrTarget != null) {
+                File f = resolvePath(currentDir, rightRedir.stderrTarget);
+                rightPb.redirectError(rightRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                             : ProcessBuilder.Redirect.to(f));
+            } else {
+                rightPb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            }
+            
+            // Create the pipeline using ProcessBuilder.startPipeline (Java 9+)
+            // If not available, we'll use a different approach
+            try {
+                List<ProcessBuilder> builders = Arrays.asList(leftPb, rightPb);
+                List<Process> processes = ProcessBuilder.startPipeline(builders);
+                
+                // Wait for all processes to complete
+                for (Process p : processes) {
+                    p.waitFor();
+                }
+            } catch (NoSuchMethodError e) {
+                // Fallback for older Java versions - use manual connection
+                Process leftProcess = leftPb.start();
+                rightPb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                Process rightProcess = rightPb.start();
+                
+                // Use a separate thread to copy data
+                Thread copyThread = new Thread(() -> {
+                    try (var leftOutput = leftProcess.getInputStream();
+                         var rightInput = rightProcess.getOutputStream()) {
+                        
+                        byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = leftOutput.read(buffer)) != -1) {
+                            rightInput.write(buffer, 0, bytesRead);
+                        }
+                    } catch (IOException ex) {
+                        // Ignore - likely process terminated
+                    }
+                });
+                
+                copyThread.start();
+                leftProcess.waitFor();
+                copyThread.join();
+                rightProcess.waitFor();
+            }
+            
+        } catch (IOException | InterruptedException e) {
+            System.out.println("Pipeline execution failed: " + e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+    
+    // Helper method to extract redirections from tokens and return clean command tokens
+    private static List<String> extractRedirectionsAndClean(List<String> tokenList, Redir redir) {
+        List<String> cleaned = new ArrayList<>();
+        for (int i = 0; i < tokenList.size(); i++) {
+            String t = tokenList.get(i);
+            String next = (i + 1 < tokenList.size()) ? tokenList.get(i + 1) : null;
+            if (t.equals(">") || t.equals("1>") || t.equals(">>") || t.equals("1>>")) {
+                if (next != null) {
+                    redir.stdoutTarget = next;
+                    redir.stdoutAppend = t.endsWith(">>");
+                    i++;
+                }
+            } else if (t.equals("2>") || t.equals("2>>")) {
+                if (next != null) {
+                    redir.stderrTarget = next;
+                    redir.stderrAppend = t.endsWith(">>");
+                    i++;
+                }
+            } else if (t.startsWith("1>>")) {
+                redir.stdoutTarget = t.substring(3).isEmpty() && next != null ? next : t.substring(3);
+                redir.stdoutAppend = true;
+                if (t.substring(3).isEmpty() && next != null) { i++; }
+            } else if (t.startsWith(">>")) {
+                redir.stdoutTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                redir.stdoutAppend = true;
+                if (t.substring(2).isEmpty() && next != null) { i++; }
+            } else if (t.startsWith("1>")) {
+                redir.stdoutTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                redir.stdoutAppend = false;
+                if (t.substring(2).isEmpty() && next != null) { i++; }
+            } else if (t.startsWith(">")) {
+                redir.stdoutTarget = t.substring(1).isEmpty() && next != null ? next : t.substring(1);
+                redir.stdoutAppend = false;
+                if (t.substring(1).isEmpty() && next != null) { i++; }
+            } else if (t.startsWith("2>>")) {
+                redir.stderrTarget = t.substring(3).isEmpty() && next != null ? next : t.substring(3);
+                redir.stderrAppend = true;
+                if (t.substring(3).isEmpty() && next != null) { i++; }
+            } else if (t.startsWith("2>")) {
+                redir.stderrTarget = t.substring(2).isEmpty() && next != null ? next : t.substring(2);
+                redir.stderrAppend = false;
+                if (t.substring(2).isEmpty() && next != null) { i++; }
+            } else {
+                cleaned.add(t);
+            }
+        }
+        return cleaned;
     }
 
     // Compute the longest common prefix among a list of strings
