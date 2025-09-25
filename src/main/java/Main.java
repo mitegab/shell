@@ -173,6 +173,7 @@ public class Main {
                                         System.out.print(sorted.get(i));
                                     }
                                     System.out.print("\n");
+                                    System.out.flush();
                                     // Reprint prompt and current buffer (unchanged)
                                     redrawLine(lineBuffer.toString());
                                     // reset state after listing
@@ -252,6 +253,7 @@ public class Main {
                                         System.out.print(sorted.get(i));
                                     }
                                     System.out.print("\n");
+                                    System.out.flush();
                                     redrawLine(lineBuffer.toString());
                                     lastTabPrefix = null;
                                     tabPressCount = 0;
