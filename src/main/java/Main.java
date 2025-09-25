@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+ 
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -16,9 +17,12 @@ public class Main {
         // Track current working directory inside the shell
         File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
 
-        // Simple line editor to support TAB completion for builtins
-        InputStream in = System.in;
-        StringBuilder lineBuffer = new StringBuilder();
+    // Simple line editor to support TAB completion for builtins
+    InputStream in = System.in;
+    StringBuilder lineBuffer = new StringBuilder();
+    final int TABSTOP = 8;
+    final int PROMPT_LEN = 2; // "$ "
+    int ignoreSpaces = 0; // number of spaces to consume silently after a detected tab-expansion
 
         // REPL: print prompt, read chars, handle TAB/backspace/enter, repeat until EOF
         while (true) {
@@ -31,7 +35,6 @@ public class Main {
             readLoop:
             while ((ch = in.read()) != -1) {
                 if (ch == '\r') {
-                    // ignore carriage return, wait for newline or treat as newline if no LF follows
                     continue;
                 }
                 if (ch == '\n') {
@@ -39,22 +42,24 @@ public class Main {
                     System.out.flush();
                     break readLoop; // process the current line
                 }
+                if (ignoreSpaces > 0 && ch == ' ') {
+                    ignoreSpaces--;
+                    continue;
+                }
                 if (ch == '\t') {
-                    // TAB completion for builtins: echo, exit (first token only)
+                    // Direct TAB received: complete first token to echo/exit if unambiguous
                     String current = lineBuffer.toString();
-                    String trimmed = current; // don't trim, we only complete if no spaces yet
-                    int firstSpace = trimmed.indexOf(' ');
+                    int firstSpace = current.indexOf(' ');
                     if (firstSpace == -1) {
                         String[] builtins = {"echo", "exit"};
                         String match = null;
                         for (String b : builtins) {
-                            if (b.startsWith(trimmed)) {
+                            if (b.startsWith(current)) {
                                 if (match == null) match = b; else { match = null; break; }
                             }
                         }
                         if (match != null) {
                             String completed = match + " ";
-                            // Erase the current typed fragment and print completion
                             for (int i = 0; i < lineBuffer.length(); i++) {
                                 System.out.print("\b \b");
                             }
@@ -63,20 +68,53 @@ public class Main {
                             lineBuffer.setLength(0);
                             lineBuffer.append(completed);
                         } else {
-                            // No unambiguous match: ring bell
                             System.out.print("\u0007");
                             System.out.flush();
                         }
                     } else {
-                        // Don't complete after a space for this stage
                         System.out.print("\u0007");
                         System.out.flush();
                     }
                     continue;
                 }
+                if (ch == ' ') {
+                    // Detect terminals that expand TAB into spaces to next tab stop
+                    String current = lineBuffer.toString();
+                    int firstSpace = current.indexOf(' ');
+                    if (firstSpace == -1) {
+                        String[] builtins = {"echo", "exit"};
+                        String match = null;
+                        for (String b : builtins) {
+                            if (b.startsWith(current)) {
+                                if (match == null) match = b; else { match = null; break; }
+                            }
+                        }
+                        if (match != null) {
+                            int col = (PROMPT_LEN + current.length()) % TABSTOP;
+                            int needed = (TABSTOP - col);
+                            if (needed == 0) needed = TABSTOP;
+                            // We just received the first space of the expansion, consume the rest silently
+                            ignoreSpaces = needed - 1;
+                            // complete
+                            for (int i = 0; i < lineBuffer.length(); i++) {
+                                System.out.print("\b \b");
+                            }
+                            String completed = match + " ";
+                            System.out.print(completed);
+                            System.out.flush();
+                            lineBuffer.setLength(0);
+                            lineBuffer.append(completed);
+                            continue;
+                        }
+                    }
+                    // Regular space
+                    lineBuffer.append(' ');
+                    System.out.print(' ');
+                    System.out.flush();
+                    continue;
+                }
                 if (ch == 127 || ch == '\b') { // handle backspace/delete
                     if (lineBuffer.length() > 0) {
-                        // Remove last char from buffer and from screen
                         lineBuffer.setLength(lineBuffer.length() - 1);
                         System.out.print("\b \b");
                         System.out.flush();
