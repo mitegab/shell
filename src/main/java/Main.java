@@ -58,10 +58,14 @@ public class Main {
                 // Try to execute external command found in PATH
                 String path = findInPath(cmdName);
                 if (path != null) {
+                    // Use sh -c with positional parameters so argv[0] equals the typed command name
                     List<String> command = new ArrayList<>();
-                    command.add(path);
+                    command.add("/bin/sh");
+                    command.add("-c");
+                    command.add("exec \"$0\" \"$@\"");
+                    command.add(cmdName); // this becomes $0 for the exec'ed program
                     for (int i = 1; i < tokens.length; i++) {
-                        command.add(tokens[i]);
+                        command.add(tokens[i]); // these become $1..$n
                     }
                     ProcessBuilder pb = new ProcessBuilder(command);
                     pb.redirectErrorStream(true);
@@ -77,7 +81,6 @@ public class Main {
                     } catch (IOException | InterruptedException e) {
                         // If execution fails, mimic not found message
                         System.out.println(cmdName + ": command not found");
-                        // Restore interrupted flag if needed
                         if (e instanceof InterruptedException) {
                             Thread.currentThread().interrupt();
                         }
