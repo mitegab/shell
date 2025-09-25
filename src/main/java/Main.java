@@ -27,6 +27,23 @@ public class Main {
         // Track current working directory inside the shell
         File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
 
+        // Load history from HISTFILE on startup (if provided)
+        String histFileEnv = System.getenv("HISTFILE");
+        if (histFileEnv != null && !histFileEnv.isEmpty()) {
+            try {
+                File hf = resolvePath(currentDir, histFileEnv);
+                List<String> lines = Files.readAllLines(hf.toPath(), StandardCharsets.UTF_8);
+                for (String line : lines) {
+                    String t = line.trim();
+                    if (!t.isEmpty()) HISTORY.add(t);
+                }
+                // After loading existing history, new appends should start from here
+                LAST_APPEND_INDEX = HISTORY.size();
+            } catch (IOException ignored) {
+                // If no file or unreadable, start with empty history
+            }
+        }
+
     // Simple line editor to support TAB completion for builtins
     InputStream in = System.in;
     StringBuilder lineBuffer = new StringBuilder();
@@ -579,6 +596,13 @@ public class Main {
             else if (cmdName.equals("exit")) {
                 // Only exit when explicitly given 0 as per stage requirements
                 if (tokens.length >= 2 && tokens[1].equals("0")) {
+                    // If HISTFILE is set, write in-memory history to it on exit
+                    if (histFileEnv != null && !histFileEnv.isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (String h : HISTORY) sb.append(h).append('\n');
+                        writeToFile(currentDir, histFileEnv, sb.toString(), false);
+                        LAST_APPEND_INDEX = HISTORY.size();
+                    }
                     System.exit(0);
                 } else {
                     // Not supported variants: treat as no-op for now
@@ -1004,6 +1028,7 @@ public class Main {
         
         String cmd = tokens.get(0);
         try {
+
             if ("echo".equals(cmd)) {
                 StringBuilder sb = new StringBuilder();
                 for (int i = 1; i < tokens.size(); i++) {
