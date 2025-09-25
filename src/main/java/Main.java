@@ -9,7 +9,9 @@ import java.io.IOException;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-        Scanner scanner = new Scanner(System.in);
+    Scanner scanner = new Scanner(System.in);
+    // Track current working directory inside the shell
+    File currentDir = new File(System.getProperty("user.dir")).getCanonicalFile();
 
         // REPL: print prompt, read a line, respond, repeat until EOF
         while (true) {
@@ -32,12 +34,16 @@ public class Main {
 
             String[] tokens = input.split("\\s+");
             String cmdName = tokens[0];
-            String[] buildInCommands = {"exit", "echo", "type"};
+            String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd"};
 
             if (input.equals("exit 0")) {
                 System.exit(0); // Exit with status code 0 as required
             }
-            if (input.startsWith("echo ")) {
+            if (cmdName.equals("pwd")) {
+                // Print absolute current working directory tracked by the shell
+                System.out.println(currentDir.getCanonicalPath());
+            }
+            else if (input.startsWith("echo ")) {
                 System.out.println(input.substring(5));
             }
             else if (input.startsWith("type ")) {
