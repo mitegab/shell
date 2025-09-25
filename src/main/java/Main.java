@@ -1,6 +1,11 @@
 import java.util.Scanner;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -17,13 +22,24 @@ public class Main {
 
 
             String input = scanner.nextLine();
+            if (input == null) {
+                break;
+            }
+            input = input.trim();
+            if (input.isEmpty()) {
+                continue; // empty line, show prompt again
+            }
+
+            String[] tokens = input.split("\\s+");
+            String cmdName = tokens[0];
             String[] buildInCommands = {"exit", "echo", "type"};
 
             if (input.equals("exit 0")) {
-                break; // EOF - exit the REPL
+                System.exit(0); // Exit with status code 0 as required
             }
             if (input.startsWith("echo ")) {
-                System.out.println(input.substring(5));}
+                System.out.println(input.substring(5));
+            }
             else if (input.startsWith("type ")) {
                 String name = input.substring(5).trim();
                 if (Arrays.asList(buildInCommands).contains(name)){
@@ -37,14 +53,43 @@ public class Main {
                         System.out.println(name + ": not found");
                     }
                 }
+            }
+            else {
+                // Try to execute external command found in PATH
+                String path = findInPath(cmdName);
+                if (path != null) {
+                    List<String> command = new ArrayList<>();
+                    command.add(path);
+                    for (int i = 1; i < tokens.length; i++) {
+                        command.add(tokens[i]);
                     }
-
-                else {
-                    System.out.println(input + ": command not found");
+                    ProcessBuilder pb = new ProcessBuilder(command);
+                    pb.redirectErrorStream(true);
+                    try {
+                        Process process = pb.start();
+                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                System.out.println(line);
+                            }
+                        }
+                        process.waitFor();
+                    } catch (IOException | InterruptedException e) {
+                        // If execution fails, mimic not found message
+                        System.out.println(cmdName + ": command not found");
+                        // Restore interrupted flag if needed
+                        if (e instanceof InterruptedException) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                } else {
+                    System.out.println(cmdName + ": command not found");
                 }
             }
+            }
 
-        }
+    scanner.close();
+    }
 
     // Find the first executable matching name in PATH and return its absolute path or null if not found.
     private static String findInPath(String name) {
