@@ -367,8 +367,10 @@ public class Main {
             } else {
                 cmd.add("stty echo icanon 2>/dev/null || true");
             }
-            new ProcessBuilder(cmd).inheritIO().start().waitFor();
-            return true;
+            Process p = new ProcessBuilder(cmd).inheritIO().start();
+            int code = p.waitFor();
+            // Return true only if stty succeeded (exit code 0)
+            return code == 0;
         } catch (Exception e) {
             return false;
         }
