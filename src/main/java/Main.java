@@ -418,9 +418,7 @@ public class Main {
             String[] tokens = cleaned.toArray(new String[0]);
             String[] buildInCommands = {"exit", "echo", "type", "pwd", "cd", "history"};
 
-            if (input.equals("exit 0")) {
-                System.exit(0); // Exit with status code 0 as required
-            }
+            // Removed early exit so we can handle history write in the exit builtin block
             if (cmdName.equals("pwd")) {
                 // Print absolute current working directory tracked by the shell
                 String line = currentDir.getCanonicalPath() + System.lineSeparator();
@@ -1016,6 +1014,7 @@ public class Main {
             }
         }
     }
+
  
 
     private static boolean isPipelineBuiltin(String cmd) {
