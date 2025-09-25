@@ -43,6 +43,8 @@ public class Main {
             System.out.flush();
 
             lineBuffer.setLength(0);
+            // Reset per-prompt history navigation state (-1 means not browsing)
+            int historyCursor = -1;
 
             int ch;
             readLoop:
@@ -58,6 +60,62 @@ public class Main {
                 if (ignoreSpaces > 0 && ch == ' ') {
                     ignoreSpaces--;
                     continue;
+                }
+                if (ch == 27) { // ESC - possible arrow key sequence
+                    int ch2 = in.read();
+                    if (ch2 == '[') {
+                        int ch3 = in.read();
+                        if (ch3 == 'A') { // UP arrow
+                            if (HISTORY.isEmpty()) {
+                                System.out.print("\u0007");
+                                System.out.flush();
+                            } else {
+                                if (historyCursor == -1) historyCursor = HISTORY.size();
+                                if (historyCursor > 0) historyCursor--;
+                                // else already at oldest; keep at 0 and bell
+                                if (historyCursor == 0 && HISTORY.size() > 0 && !HISTORY.get(0).equals(lineBuffer.toString())) {
+                                    // ok
+                                }
+                                if (historyCursor == 0 && HISTORY.size() > 0 && HISTORY.get(0).equals(lineBuffer.toString())) {
+                                    // pressing up at oldest repeats; bell
+                                    System.out.print("\u0007");
+                                    System.out.flush();
+                                }
+                                lineBuffer.setLength(0);
+                                lineBuffer.append(HISTORY.get(historyCursor));
+                                redrawLine(lineBuffer.toString());
+                                // reset completion state
+                                lastTabPrefix = null;
+                                tabPressCount = 0;
+                            }
+                            continue;
+                        } else if (ch3 == 'B') { // DOWN arrow
+                            if (historyCursor == -1) {
+                                System.out.print("\u0007");
+                                System.out.flush();
+                            } else {
+                                if (historyCursor < HISTORY.size() - 1) {
+                                    historyCursor++;
+                                    lineBuffer.setLength(0);
+                                    lineBuffer.append(HISTORY.get(historyCursor));
+                                } else {
+                                    // Move to current empty line
+                                    historyCursor = HISTORY.size();
+                                    lineBuffer.setLength(0);
+                                }
+                                redrawLine(lineBuffer.toString());
+                                lastTabPrefix = null;
+                                tabPressCount = 0;
+                            }
+                            continue;
+                        } else {
+                            // ignore other CSI sequences
+                            continue;
+                        }
+                    } else {
+                        // Lone ESC or unknown sequence: ignore
+                        continue;
+                    }
                 }
                 if (ch == '\t') {
                     // Direct TAB received: complete first token to echo/exit if unambiguous
@@ -85,6 +143,7 @@ public class Main {
                             // reset double-tab state
                             lastTabPrefix = null;
                             tabPressCount = 0;
+                            historyCursor = -1;
                         } else {
                             // Ambiguous or no matches
                             if (!execMatches.isEmpty() && cands.size() > 1) {
@@ -102,6 +161,7 @@ public class Main {
                                     redrawLine(lineBuffer.toString());
                                     lastTabPrefix = null;
                                     tabPressCount = 0;
+                                    historyCursor = -1;
                                 } else {
                                 if (current.equals(lastTabPrefix) && tabPressCount >= 1) {
                                     // Second TAB: print list of matches (executables only) sorted, two spaces separated
@@ -121,7 +181,7 @@ public class Main {
                                 } else {
                                     System.out.print("\u0007");
                                     System.out.flush();
-                                    lastTabPrefix = current;
+                                    lastTabPrefix = null;
                                     tabPressCount = 1;
                                 }
                                 }
@@ -162,6 +222,7 @@ public class Main {
                                 // reset double-tab state
                                 lastTabPrefix = null;
                                 tabPressCount = 0;
+                                historyCursor = -1;
                                 continue;
                             } else if (!execMatches.isEmpty() && cands.size() > 1) {
                                 // Ambiguous: try partial LCP completion first
@@ -178,6 +239,7 @@ public class Main {
                                     redrawLine(lineBuffer.toString());
                                     lastTabPrefix = null;
                                     tabPressCount = 0;
+                                    historyCursor = -1;
                                     continue;
                                 }
                                 // If no progress from LCP, emulate double-TAB list behavior
@@ -212,6 +274,7 @@ public class Main {
                     // reset double-tab state when buffer changes
                     lastTabPrefix = null;
                     tabPressCount = 0;
+                    historyCursor = -1;
                     continue;
                 }
                 if (ch == 127 || ch == '\b') { // handle backspace/delete
@@ -221,6 +284,7 @@ public class Main {
                         // reset double-tab state when buffer changes
                         lastTabPrefix = null;
                         tabPressCount = 0;
+                        historyCursor = -1;
                     } else {
                         System.out.print("\u0007");
                         System.out.flush();
@@ -233,6 +297,7 @@ public class Main {
                 // reset double-tab state when buffer changes
                 lastTabPrefix = null;
                 tabPressCount = 0;
+                historyCursor = -1;
             }
 
             if (ch == -1) {
