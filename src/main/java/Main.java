@@ -174,8 +174,11 @@ public class Main {
                                     }
                                     System.out.print("\n");
                                     System.out.flush();
-                                    // Reprint prompt and current buffer (unchanged)
-                                    redrawLine(lineBuffer.toString());
+                                    // Reprint prompt and current buffer (unchanged) on a fresh line
+                                    System.out.print("$ ");
+                                    System.out.print(lineBuffer.toString());
+                                    System.out.print("\u001B[K");
+                                    System.out.flush();
                                     // reset state after listing
                                     lastTabPrefix = null;
                                     tabPressCount = 0;
@@ -254,7 +257,10 @@ public class Main {
                                     }
                                     System.out.print("\n");
                                     System.out.flush();
-                                    redrawLine(lineBuffer.toString());
+                                    System.out.print("$ ");
+                                    System.out.print(lineBuffer.toString());
+                                    System.out.print("\u001B[K");
+                                    System.out.flush();
                                     lastTabPrefix = null;
                                     tabPressCount = 0;
                                 } else {
