@@ -1,35 +1,34 @@
 [![progress-banner](https://backend.codecrafters.io/progress/shell/355d12fc-406f-4fac-ace6-71724fd1c17c)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# My solutions for the CodeCrafters Shell challenge (Java)
 
-This is a starting point for Java solutions to the
-["Build Your Own Shell" Challenge](https://app.codecrafters.io/courses/shell/overview).
+This repository contains my solutions for the CodeCrafters "shell" challenge implemented in Java.
 
-In this challenge, you'll build your own POSIX compliant shell that's capable of
-interpreting shell commands, running external programs and builtin commands like
-cd, pwd, echo and more. Along the way, you'll learn about shell command parsing,
-REPLs, builtin commands, and more.
+Contents
+- A single-file Java shell implementation in `src/main/java/Main.java` providing:
+   - A REPL with history and basic line editing (arrow keys for navigation).
+   - Support for shell builtins: `echo`, `pwd`, `cd`, `exit`, `type`, and `history`.
+   - Command history persistence via `history -r/-w/-a` and `HISTFILE` integration.
+   - Multi-stage pipelines including pipelines that mix builtins and external commands.
+   - Redirections for stdout/stderr with overwrite and append forms.
+   - Command autocompletion (TAB) and candidate listing (double-TAB).
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+How to build
 
-# Passing the first stage
+Run Maven to compile and package the project:
 
-The entry point for your `shell` implementation is in `src/main/java/Main.java`.
-Study and uncomment the relevant code, and push your changes to pass the first
-stage:
-
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+```bash
+mvn package
 ```
 
-Time to move on to the next stage!
+How to run
 
-# Stage 2 & beyond
+Use the provided wrapper script to start the interactive shell (the course runner uses `your_program.sh`):
 
-Note: This section is for stages 2 and beyond.
+```bash
+./your_program.sh
+```
 
-1. Ensure you have `mvn` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main/java/Main.java`.
+Notes
+- This is a compact, single-file implementation intended for the CodeCrafters challenge; it focuses on correctness for the test harness rather than production-grade robustness.
+- For more details, see `src/main/java/Main.java`.
 1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
