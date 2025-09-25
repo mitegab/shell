@@ -248,20 +248,23 @@ public class Main {
                 continue;
             }
             
-            // Check for pipeline (|) operator
-            int pipeIndex = -1;
-            for (int i = 0; i < tokenList.size(); i++) {
-                if (tokenList.get(i).equals("|")) {
-                    pipeIndex = i;
-                    break;
+            // Check for pipelines. If multiple pipes, handle N-stage pipeline
+            int pipeCount = 0;
+            for (String t : tokenList) if ("|".equals(t)) pipeCount++;
+            if (pipeCount >= 1) {
+                // Split into stages
+                List<List<String>> stages = new ArrayList<>();
+                List<String> cur = new ArrayList<>();
+                for (String t : tokenList) {
+                    if ("|".equals(t)) {
+                        stages.add(cur);
+                        cur = new ArrayList<>();
+                    } else {
+                        cur.add(t);
+                    }
                 }
-            }
-            
-            if (pipeIndex > 0 && pipeIndex < tokenList.size() - 1) {
-                // This is a pipeline: split into left and right commands
-                List<String> leftTokens = tokenList.subList(0, pipeIndex);
-                List<String> rightTokens = tokenList.subList(pipeIndex + 1, tokenList.size());
-                executePipeline(leftTokens, rightTokens, currentDir);
+                stages.add(cur);
+                executePipelineChain(stages, currentDir);
                 continue;
             }
             
@@ -654,219 +657,180 @@ public class Main {
         return tokens;
     }
 
-    // Execute a pipeline between two commands
-    private static void executePipeline(List<String> leftTokens, List<String> rightTokens, File currentDir) {
+    // Execute a pipeline between two commands (replaced by generic chain executor)
+
+    // Execute N-stage pipeline with builtin/external mixing
+    private static void executePipelineChain(List<List<String>> stages, File currentDir) {
         try {
-            // Parse left command (remove redirections, get clean tokens)
-            Redir leftRedir = new Redir();
-            List<String> leftCleaned = extractRedirectionsAndClean(leftTokens, leftRedir);
-            if (leftCleaned.isEmpty()) return;
-            
-            // Parse right command (remove redirections, get clean tokens) 
-            Redir rightRedir = new Redir();
-            List<String> rightCleaned = extractRedirectionsAndClean(rightTokens, rightRedir);
-            if (rightCleaned.isEmpty()) return;
-            
-            String leftCmd = leftCleaned.get(0);
-            String rightCmd = rightCleaned.get(0);
-            boolean leftIsBuiltin = isPipelineBuiltin(leftCmd);
-            boolean rightIsBuiltin = isPipelineBuiltin(rightCmd);
-
-            // Builtin | Builtin
-            if (leftIsBuiltin && rightIsBuiltin) {
-                ByteArrayOutputStream mid = new ByteArrayOutputStream();
-                execBuiltinForPipeline(leftCleaned, currentDir, null, mid);
-                byte[] midBytes = mid.toByteArray();
-                // Right side builtin: honor its redirections
-                if (rightRedir.stdoutTarget != null) {
-                    File f = resolvePath(currentDir, rightRedir.stdoutTarget);
-                    try (OutputStream out = Files.newOutputStream(
-                            f.toPath(),
-                            rightRedir.stdoutAppend ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.APPEND}
-                                                    : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING})) {
-                        execBuiltinForPipeline(rightCleaned, currentDir, new ByteArrayInputStream(midBytes), out);
-                    }
-                } else {
-                    execBuiltinForPipeline(rightCleaned, currentDir, new ByteArrayInputStream(midBytes), System.out);
-                }
-                return;
+            // Prepare per-stage cleaned tokens and redirections
+            int n = stages.size();
+            List<List<String>> cleanedStages = new ArrayList<>(n);
+            List<Redir> redirs = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                Redir r = new Redir();
+                List<String> cleaned = extractRedirectionsAndClean(stages.get(i), r);
+                if (cleaned.isEmpty()) return; // nothing to run
+                cleanedStages.add(cleaned);
+                redirs.add(r);
             }
 
-            // Builtin | External
-            if (leftIsBuiltin && !rightIsBuiltin) {
-                String rightPath = findInPath(rightCmd);
-                if (rightPath == null) {
-                    System.out.println(rightCmd + ": command not found");
-                    return;
-                }
-                List<String> rightCommand = new ArrayList<>();
-                rightCommand.add("/bin/sh");
-                rightCommand.add("-c");
-                rightCommand.add("exec \"$0\" \"$@\"");
-                rightCommand.add(rightCmd);
-                for (int i = 1; i < rightCleaned.size(); i++) rightCommand.add(rightCleaned.get(i));
+            // Only apply stdout/stderr redirection of the LAST stage to the final output.
+            Redir lastRedir = redirs.get(n - 1);
 
-                ProcessBuilder rightPb = new ProcessBuilder(rightCommand);
-                rightPb.directory(currentDir);
-                // Right stdout/stderr redirections
-                if (rightRedir.stdoutTarget != null) {
-                    File f = resolvePath(currentDir, rightRedir.stdoutTarget);
-                    rightPb.redirectOutput(rightRedir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                                  : ProcessBuilder.Redirect.to(f));
-                } else {
-                    rightPb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                }
-                if (rightRedir.stderrTarget != null) {
-                    File f = resolvePath(currentDir, rightRedir.stderrTarget);
-                    rightPb.redirectError(rightRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                                 : ProcessBuilder.Redirect.to(f));
-                } else {
-                    rightPb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                // Start right process and feed builtin output into its stdin
-                rightPb.redirectInput(ProcessBuilder.Redirect.PIPE);
-                Process rightProcess = rightPb.start();
-                try (OutputStream toRight = rightProcess.getOutputStream()) {
-                    execBuiltinForPipeline(leftCleaned, currentDir, null, toRight);
-                }
-                rightProcess.waitFor();
-                return;
+            // If all stages are external commands, use native streaming pipeline
+            boolean allExternal = true;
+            for (List<String> ts : cleanedStages) {
+                if (isPipelineBuiltin(ts.get(0))) { allExternal = false; break; }
             }
-
-            // External | Builtin
-            if (!leftIsBuiltin && rightIsBuiltin) {
-                String leftPath = findInPath(leftCmd);
-                if (leftPath == null) {
-                    System.out.println(leftCmd + ": command not found");
-                    return;
-                }
-                List<String> leftCommand = new ArrayList<>();
-                leftCommand.add("/bin/sh");
-                leftCommand.add("-c");
-                leftCommand.add("exec \"$0\" \"$@\"");
-                leftCommand.add(leftCmd);
-                for (int i = 1; i < leftCleaned.size(); i++) leftCommand.add(leftCleaned.get(i));
-
-                ProcessBuilder leftPb = new ProcessBuilder(leftCommand);
-                leftPb.directory(currentDir);
-                // Left stderr redirection if any
-                if (leftRedir.stderrTarget != null) {
-                    File f = resolvePath(currentDir, leftRedir.stderrTarget);
-                    leftPb.redirectError(leftRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                               : ProcessBuilder.Redirect.to(f));
-                } else {
-                    leftPb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                }
-
-                Process leftProcess = leftPb.start();
-                byte[] data;
-                try (InputStream fromLeft = leftProcess.getInputStream();
-                     ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
-                    byte[] tmp = new byte[8192];
-                    int r;
-                    while ((r = fromLeft.read(tmp)) != -1) buffer.write(tmp, 0, r);
-                    data = buffer.toByteArray();
-                }
-                leftProcess.waitFor();
-
-                // Run right builtin, honoring right-side redirection
-                if (rightRedir.stdoutTarget != null) {
-                    File f = resolvePath(currentDir, rightRedir.stdoutTarget);
-                    try (OutputStream out = Files.newOutputStream(
-                            f.toPath(),
-                            rightRedir.stdoutAppend ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.APPEND}
-                                                    : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING})) {
-                        execBuiltinForPipeline(rightCleaned, currentDir, new ByteArrayInputStream(data), out);
-                    }
-                } else {
-                    execBuiltinForPipeline(rightCleaned, currentDir, new ByteArrayInputStream(data), System.out);
-                }
-                return;
-            }
-
-            // External | External (original behavior)
-            String leftPath = findInPath(leftCmd);
-            String rightPath = findInPath(rightCmd);
-            if (leftPath == null) { System.out.println(leftCmd + ": command not found"); return; }
-            if (rightPath == null) { System.out.println(rightCmd + ": command not found"); return; }
-
-            // Create left process command
-            List<String> leftCommand = new ArrayList<>();
-            leftCommand.add("/bin/sh");
-            leftCommand.add("-c");
-            leftCommand.add("exec \"$0\" \"$@\"");
-            leftCommand.add(leftCmd);
-            for (int i = 1; i < leftCleaned.size(); i++) {
-                leftCommand.add(leftCleaned.get(i));
-            }
-
-            // Create right process command
-            List<String> rightCommand = new ArrayList<>();
-            rightCommand.add("/bin/sh");
-            rightCommand.add("-c");
-            rightCommand.add("exec \"$0\" \"$@\"");
-            rightCommand.add(rightCmd);
-            for (int i = 1; i < rightCleaned.size(); i++) {
-                rightCommand.add(rightCleaned.get(i));
-            }
-
-            // Create ProcessBuilders
-            ProcessBuilder leftPb = new ProcessBuilder(leftCommand);
-            ProcessBuilder rightPb = new ProcessBuilder(rightCommand);
-
-            leftPb.directory(currentDir);
-            rightPb.directory(currentDir);
-
-            // Handle redirections for left command
-            if (leftRedir.stderrTarget != null) {
-                File f = resolvePath(currentDir, leftRedir.stderrTarget);
-                leftPb.redirectError(leftRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                           : ProcessBuilder.Redirect.to(f));
-            } else {
-                leftPb.redirectError(ProcessBuilder.Redirect.INHERIT);
-            }
-
-            // Handle redirections for right command
-            if (rightRedir.stdoutTarget != null) {
-                File f = resolvePath(currentDir, rightRedir.stdoutTarget);
-                rightPb.redirectOutput(rightRedir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                              : ProcessBuilder.Redirect.to(f));
-            } else {
-                rightPb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-            }
-
-            if (rightRedir.stderrTarget != null) {
-                File f = resolvePath(currentDir, rightRedir.stderrTarget);
-                rightPb.redirectError(rightRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
-                                                             : ProcessBuilder.Redirect.to(f));
-            } else {
-                rightPb.redirectError(ProcessBuilder.Redirect.INHERIT);
-            }
-
-            try {
-                List<ProcessBuilder> builders = Arrays.asList(leftPb, rightPb);
-                List<Process> processes = ProcessBuilder.startPipeline(builders);
-                for (Process p : processes) p.waitFor();
-            } catch (NoSuchMethodError e) {
-                Process leftProcess = leftPb.start();
-                rightPb.redirectInput(ProcessBuilder.Redirect.PIPE);
-                Process rightProcess = rightPb.start();
-                Thread copyThread = new Thread(() -> {
-                    try (var leftOutput = leftProcess.getInputStream();
-                         var rightInput = rightProcess.getOutputStream()) {
-                        byte[] buffer = new byte[8192];
-                        int bytesRead;
-                        while ((bytesRead = leftOutput.read(buffer)) != -1) {
-                            rightInput.write(buffer, 0, bytesRead);
+            if (allExternal) {
+                List<ProcessBuilder> builders = new ArrayList<>(n);
+                for (int i = 0; i < n; i++) {
+                    List<String> tokens = cleanedStages.get(i);
+                    String cmd = tokens.get(0);
+                    // Build command via sh -c so argv[0] is the typed name
+                    List<String> command = new ArrayList<>();
+                    command.add("/bin/sh");
+                    command.add("-c");
+                    command.add("exec \"$0\" \"$@\"");
+                    command.add(cmd);
+                    for (int a = 1; a < tokens.size(); a++) command.add(tokens.get(a));
+                    ProcessBuilder pb = new ProcessBuilder(command);
+                    pb.directory(currentDir);
+                    // Only apply last stage redirections
+                    if (i == n - 1) {
+                        if (lastRedir.stdoutTarget != null) {
+                            File f = resolvePath(currentDir, lastRedir.stdoutTarget);
+                            pb.redirectOutput(lastRedir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                                     : ProcessBuilder.Redirect.to(f));
+                        } else {
+                            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                         }
-                    } catch (IOException ex) {
+                        if (lastRedir.stderrTarget != null) {
+                            File f = resolvePath(currentDir, lastRedir.stderrTarget);
+                            pb.redirectError(lastRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                                   : ProcessBuilder.Redirect.to(f));
+                        } else {
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        }
+                    } else {
+                        pb.redirectOutput(ProcessBuilder.Redirect.PIPE); // will be wired by startPipeline
+                        pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     }
-                });
-                copyThread.start();
-                leftProcess.waitFor();
-                copyThread.join();
-                rightProcess.waitFor();
+                    builders.add(pb);
+                }
+                List<Process> procs = ProcessBuilder.startPipeline(builders);
+                for (Process p : procs) p.waitFor();
+                return;
+            }
+
+            // Stream the pipeline stage-by-stage in memory when builtins are involved.
+            // Strategy: for each stage i
+            //  - If external: start process, feed previous output (if any), capture stdout
+            //  - If builtin: run via execBuiltinForPipeline with proper input/output stream
+            byte[] prevOutput = null; // null means no stdin provided
+            for (int i = 0; i < n; i++) {
+                List<String> tokens = cleanedStages.get(i);
+                String cmd = tokens.get(0);
+                boolean isBuiltin = isPipelineBuiltin(cmd);
+                boolean isLast = (i == n - 1);
+
+                // Decide output sink for this stage:
+                OutputStream stageOut;
+                if (isLast) {
+                    // Honor last stage redirection
+                    if (lastRedir.stdoutTarget != null) {
+                        File f = resolvePath(currentDir, lastRedir.stdoutTarget);
+                        stageOut = Files.newOutputStream(
+                            f.toPath(),
+                            lastRedir.stdoutAppend ? new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.APPEND}
+                                                   : new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING});
+                    } else {
+                        stageOut = System.out;
+                    }
+                } else {
+                    // Intermediate stage: capture to buffer
+                    stageOut = new ByteArrayOutputStream();
+                }
+
+                try (OutputStream os = (stageOut == System.out ? null : stageOut)) {
+                    OutputStream actualOut = (os == null ? System.out : os);
+                    if (isBuiltin) {
+                        execBuiltinForPipeline(tokens, currentDir,
+                            prevOutput == null ? null : new ByteArrayInputStream(prevOutput),
+                            actualOut);
+                    } else {
+                        // Build external command
+                        List<String> command = new ArrayList<>();
+                        command.add("/bin/sh");
+                        command.add("-c");
+                        command.add("exec \"$0\" \"$@\"");
+                        command.add(cmd);
+                        for (int a = 1; a < tokens.size(); a++) command.add(tokens.get(a));
+
+                        ProcessBuilder pb = new ProcessBuilder(command);
+                        pb.directory(currentDir);
+
+                        // stderr handling: for intermediate stages, inherit; for last stage, honor lastRedir
+                        if (isLast && lastRedir.stderrTarget != null) {
+                            File f = resolvePath(currentDir, lastRedir.stderrTarget);
+                            pb.redirectError(lastRedir.stderrAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                                    : ProcessBuilder.Redirect.to(f));
+                        } else {
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        }
+
+                        if (prevOutput == null) {
+                            pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
+                        } else {
+                            pb.redirectInput(ProcessBuilder.Redirect.PIPE);
+                        }
+
+                        if (isLast && lastRedir.stdoutTarget != null) {
+                            // When last stage has redirection, let ProcessBuilder write directly to file
+                            File f = resolvePath(currentDir, lastRedir.stdoutTarget);
+                            pb.redirectOutput(lastRedir.stdoutAppend ? ProcessBuilder.Redirect.appendTo(f)
+                                                                     : ProcessBuilder.Redirect.to(f));
+                            Process p = pb.start();
+                            if (prevOutput != null) {
+                                try (OutputStream pin = p.getOutputStream()) {
+                                    pin.write(prevOutput);
+                                }
+                            }
+                            p.waitFor();
+                            // nothing to capture further
+                        } else {
+                            pb.redirectOutput(ProcessBuilder.Redirect.PIPE);
+                            Process p = pb.start();
+                            if (prevOutput != null) {
+                                try (OutputStream pin = p.getOutputStream()) {
+                                    pin.write(prevOutput);
+                                }
+                            }
+                            // Read process stdout and forward to stageOut (System.out or buffer)
+                            try (InputStream procOut = p.getInputStream()) {
+                                byte[] buf = new byte[8192];
+                                int r;
+                                while ((r = procOut.read(buf)) != -1) {
+                                    actualOut.write(buf, 0, r);
+                                }
+                            }
+                            actualOut.flush();
+                            p.waitFor();
+                        }
+                    }
+
+                    // Prepare prevOutput for next stage if needed
+                    if (!isLast) {
+                        if (actualOut instanceof ByteArrayOutputStream) {
+                            prevOutput = ((ByteArrayOutputStream) actualOut).toByteArray();
+                        } else if (stageOut instanceof ByteArrayOutputStream) {
+                            prevOutput = ((ByteArrayOutputStream) stageOut).toByteArray();
+                        } else {
+                            // If output went to System.out unexpectedly, no data for next stage
+                            prevOutput = null;
+                        }
+                    }
+                }
             }
             
         } catch (IOException | InterruptedException e) {
